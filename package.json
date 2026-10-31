@@ -1,0 +1,11 @@
+{
+  "name": "webhelm-actions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Site-specific actions for WebHelm",
+  "scripts": {
+    "test": "node --test platforms/tests/*.test.mjs platforms/chatgpt/tests-js/*.test.mjs"
+  },
+  "license": "MIT"
+}
