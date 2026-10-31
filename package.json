@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Site-specific actions for WebHelm",
   "scripts": {
-    "test": "node --test platforms/tests/*.test.mjs platforms/chatgpt/tests-js/*.test.mjs"
+    "test": "node --test"
   },
   "license": "MIT"
 }

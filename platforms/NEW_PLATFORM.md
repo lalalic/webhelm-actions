@@ -1,0 +1,39 @@
+# Creating or fixing a platform
+
+The **only writable source** for site behavior is this Git checkout's `platforms/` directory. On a user's machine this repo is at `$HOME/.local/webhelm`; therefore a new platform's canonical path is **`$HOME/.local/webhelm/platforms/<slug>`**, never `skills/webhelm/platforms`, npm's `runtime/` directory, or the npm cache.
+
+Start with `npx --yes webhelm@latest setup`, then `cd "$HOME/.local/webhelm"`. For an unsupported site use a slug of lowercase letters, numbers and hyphens (example: `example-site`). Create:
+
+```text
+~/.local/webhelm/platforms/example-site/
+  manifest.yaml
+  README.md
+  actions/_inspect.mjs
+  tests/inspect.test.mjs
+```
+
+Example `manifest.yaml`:
+
+```yaml
+platform: example-site
+display_name: Example Site
+status: unverified
+last_verified: null
+actions:
+  inspect: actions/_inspect.mjs
+```
+
+Example `actions/_inspect.mjs`:
+
+```js
+export default async function run({ helpers }) {
+  const page = await helpers.page_info();
+  return { ok: true, url: page.url, title: page.title };
+}
+```
+
+Add tests in the new directory; `npm test` in this checkout discovers all `*.test.mjs` files automatically, including newly added platforms. Read existing Actions and the runtime's Browser Helpers contract before writing or running other Actions. Begin with harmless read-only operations; use caller-owned Sessions for real browser E2E, and never invent successful submission receipts. Add a human-readable README explaining the site's supported flows and verification state. Do not store passwords, cookies, user content, screenshots, or browsing logs in Git.
+
+Verify `npx --yes webhelm@latest platform list` and `platform profile example-site`, run Actions tests and a real read-only Action through an owned Session. Then publish *reviewed* changes only to `lalalic/webhelm-actions` using `npx --yes webhelm@latest platform publish --message "feat(example-site): add inspector"`. This tests, commits only under `platforms/` and uses regular non-force Git push.
+
+When an existing Action breaks, edit the module in `$HOME/.local/webhelm/platforms/<slug>` directly, not the installed Skill or Runtime. `platform sync` pulls published updates fast-forward only and refuses to overwrite local edits. New Actions do **not** require a WebHelm npm release or Skill reinstall.
