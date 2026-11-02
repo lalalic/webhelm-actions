@@ -1,16 +1,21 @@
 import { sleep } from "../../_action_helpers.mjs";
+import inspect from "./_inspect.mjs";
+import monitor from "./_monitor.mjs";
+import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt } from "../../_publish_guard.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
-  if (c?.confirm_publish !== true) {
-    throw new Error("Explicit confirm_publish:true and owner publication approval are required before upload");
-  }
+  const scope = assertPublishAuthorized(c, "tiktok");
+  const account = await inspect({ helpers: h, config: { expected_handle: scope.destination_account } });
+  if (account.status !== "ready") throw new Error("destination_account_unverified:" + (account.reason || account.status));
+  const inventory = await monitor({ helpers: h, config: {
+    mode: "posts", expected_handle: scope.destination_account
+  } });
+  assertNoObservedDuplicate(inventory, c.caption);
   let step = 0;
   const next = (s) => log(`[${++step}/7] ${s}`);
   next("Opening TikTok upload page...");
-  await h.new_tab(
-    "https://www.tiktok.com/creator#/upload?scene=creator_center",
-  );
+  await h.goto_url("https://www.tiktok.com/creator#/upload?scene=creator_center");
   await h.wait_for_load();
   await sleep(5000);
   let url = (await h.page_info()).url;
@@ -53,7 +58,7 @@ export default async function post(
   for (let i = 0; i < 120; i++) {
     await sleep(5000);
     done = await h.js(
-      `(()=>{const es=document.querySelectorAll('[class*=progress],[class*=percent],[class*=upload-progress]');for(const e of es){const t=e.textContent;if(t&&/100|Complete|Done/.test(t))return true}return !!document.querySelector('[class*=caption],[class*=editor] [contenteditable],[data-text=true]')})()`,
+      `(()=>{const es=document.querySelectorAll('[class*=progress],[class*=percent],[class*=upload-progress]');for(const e of es){const t=e.textContent;if(t&&/100|Complete|Done/.test(t))return true}return false})()`,
     );
     if (done) break;
     if (i % 6 === 5) {
@@ -65,29 +70,35 @@ export default async function post(
       );
     }
   }
-  if (!done) await h.capture_screenshot();
+  if (!done) {
+    await h.capture_screenshot();
+    throw new Error("upload_processing_unverified: manual reconciliation required");
+  }
   await sleep(3000);
   next("Setting caption...");
   const caption = c.caption;
-  await h.js(
+  const captionSet = await h.js(
     `(()=>{let e=document.querySelector('[class*=caption-editor] [contenteditable],[class*=notranslate][contenteditable],[data-text=true],.DraftEditor-root [contenteditable],[class*=editor-container] [contenteditable]')||document.querySelector('[contenteditable=true]');if(e){e.focus();e.textContent=${
       JSON.stringify(caption)
     };e.dispatchEvent(new Event('input',{bubbles:true}));return true}return false})()`,
   );
+  if (!captionSet) throw new Error("caption_not_applied");
   await sleep(1000);
-  if (c.visibility !== "public") {
-    next("Setting visibility to " + c.visibility + "...");
-    await h.js(
-      `(()=>{for(const e of document.querySelectorAll('[class*=select],[class*=dropdown],[class*=visibility]'))if(/Everyone|Public|Friends/.test(e.textContent)){e.click();break}})()`,
+  if (scope.visibility !== "public") {
+    next("Setting visibility to " + scope.visibility + "...");
+    const visibilityMenuOpened = await h.js(
+      `(()=>{for(const e of document.querySelectorAll('[class*=select],[class*=dropdown],[class*=visibility]'))if(/Everyone|Public|Friends/.test(e.textContent)){e.click();return true}return false})()`,
     );
     await sleep(1000);
-    const label = { friends: "Friends", private: "Only me" }[c.visibility] ||
+    if (!visibilityMenuOpened) throw new Error("visibility_menu_not_opened");
+    const label = { friends: "Friends", private: "Only me" }[scope.visibility] ||
       "Everyone";
-    await h.js(
+    const visibilitySet = await h.js(
       `(()=>{for(const e of document.querySelectorAll('[class*=option],[class*=menu-item],[role=option]'))if(e.textContent.includes(${
         JSON.stringify(label)
-      })){e.click();break}})()`,
+      })){e.click();return true}return false})()`,
     );
+    if (!visibilitySet) throw new Error("visibility_not_applied");
     await sleep(1000);
   } else next("Visibility: public (default)");
   const changed = [];
@@ -121,5 +132,5 @@ export default async function post(
   await sleep(5000);
   await h.capture_screenshot();
   log("TikTok Post click submitted; verify real post URL and visibility before claiming success.");
-  return { status: "submitted_unverified", url: (await h.page_info()).url };
+  return unverifiedReceipt(scope, { submission_page_url: (await h.page_info()).url });
 }

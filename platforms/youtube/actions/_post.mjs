@@ -1,10 +1,17 @@
 import { sleep } from "../../_action_helpers.mjs";
+import inspect from "./_inspect.mjs";
+import monitor from "./_monitor.mjs";
+import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt } from "../../_publish_guard.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
-  if (c?.confirm_publish !== true) {
-    throw new Error("Explicit confirm_publish:true and owner publication approval are required before upload");
-  }
+  const scope = assertPublishAuthorized(c, "youtube");
+  const account = await inspect({ helpers: h, config: { expected_channel_id: scope.destination_account } });
+  if (account.status !== "ready") throw new Error("destination_account_unverified:" + (account.reason || account.status));
+  const inventory = await monitor({ helpers: h, config: {
+    mode: "posts", expected_channel_id: scope.destination_account, content_type: c.content_type || "shorts"
+  } });
+  assertNoObservedDuplicate(inventory, c.title);
   let step = 0;
   const total = 7 + (c.tags?.length ? 1 : 0) + (c.thumbnail ? 1 : 0),
     next = (s) => log(`[${++step}/${total}] ${s}`);
@@ -22,7 +29,7 @@ export default async function post(
     return false;
   };
   next("Opening YouTube Studio upload...");
-  await h.new_tab("https://www.youtube.com/upload");
+  await h.goto_url("https://www.youtube.com/upload");
   await h.wait_for_load();
   await sleep(3000);
   if ((await h.page_info()).url.includes("accounts.google.com")) {
@@ -33,19 +40,23 @@ export default async function post(
   await sleep(5000);
   next("Waiting for processing...");
   await sleep(3000);
+  const uploadDialogReady = await h.js("document.querySelectorAll('#textbox').length >= 2");
+  if (!uploadDialogReady) throw new Error("upload_dialog_unverified: reconcile manually");
   next("Setting title: " + c.title);
-  await h.js(
+  const titleSet = await h.js(
     `(()=>{const b=document.querySelectorAll('#textbox')[0];if(!b)return false;b.textContent=${
       JSON.stringify(c.title)
     };b.dispatchEvent(new Event('input',{bubbles:true}));return true})()`,
   );
+  if (!titleSet) throw new Error("title_not_applied");
   await sleep(500);
   next("Setting description...");
-  await h.js(
+  const descriptionSet = await h.js(
     `(()=>{const b=document.querySelectorAll('#textbox')[1];if(!b)return false;b.textContent=${
       JSON.stringify(c.desc || "")
     };b.dispatchEvent(new Event('input',{bubbles:true}));return true})()`,
   );
+  if (!descriptionSet) throw new Error("description_not_applied");
   await sleep(500);
   if (c.thumbnail) {
     next("Uploading thumbnail...");
@@ -92,8 +103,9 @@ export default async function post(
     }
     await sleep(2000);
   }
-  const vis = c.vis || c.visibility || "PRIVATE";
+  const vis = scope.visibility.toUpperCase();
   next("Setting visibility to " + vis + " and saving...");
+  let visibilitySelected = false;
   for (let i = 0; i < 5; i++) {
     if (
       await h.js(
@@ -102,16 +114,18 @@ export default async function post(
         });if(!e)return false;e.click();return true})()`,
       )
     ) {
+      visibilitySelected = true;
       await sleep(1000);
       break;
     }
     await sleep(1000);
   }
+  if (!visibilitySelected) throw new Error("visibility_not_applied");
   if (!(await clickBtn("Save"))) {
     throw new Error("YouTube Save button was not found");
   }
   await sleep(5000);
   await h.capture_screenshot();
   log("YouTube Save click submitted; verify the video in Studio before claiming success.");
-  return { status: "submitted_unverified", visibility: vis };
+  return unverifiedReceipt(scope, { submission_page_url: (await h.page_info()).url });
 }
