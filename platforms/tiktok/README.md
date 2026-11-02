@@ -10,3 +10,9 @@ Use `webhelm platform profile tiktok` and `webhelm platform run --help`.
 Worknode readiness (2026-11-02): TikTok Studio redirects to login; YouTube Studio shows a browser error even though HTTPS shell HEAD succeeds. User must sign into Worknode's **managed Chrome** and resolve YouTube navigation before live publishing or monitoring E2E. Neo Master sign-in does not transfer.
 
 Safelist submission does not imply permission to post. The project `neo/content-distribution/accounts.md` holds public channel identities and the RS Boost account records.
+
+## Worknode read-only live verification (2026-11-02)
+
+- `inspect` confirmed the managed Chrome account `lalalic001`, expected identity, and visible Upload control: **PASS**. This is not a video upload or publishing receipt.
+- `monitor` with `mode:posts` read an existing post and its displayed views/likes/comments; `mode:comments` confirmed TikTok Studio's explicit “No comments yet” state. A nonempty comment record has **not** been live-tested.
+- `post` remains unverified for live upload and must not run without `confirm_publish:true` **and** a separate owner-approved creative, channel and destination.
