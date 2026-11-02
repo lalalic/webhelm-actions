@@ -17,6 +17,12 @@ export default async function inspect({ helpers: h, config: c = {} }) {
       .some(e => /^(Upload|Upload video)$/i.test((e.textContent || '').trim()));
     return { handle, upload };
   })()`);
+  if (!data?.handle) {
+    await h.wait?.(2); // TikTok login redirect is asynchronous after Studio navigation.
+    const next = await h.page_info();
+    if (/login|accounts/i.test(next.url))
+      return { status: "blocked", reason: "login_required", upload_ready: false };
+  }
   const expected = c.expected_handle?.replace(/^@/, "") || null;
   const actual = data?.handle?.replace(/^@/, "") || null;
   if (expected && actual !== expected)
