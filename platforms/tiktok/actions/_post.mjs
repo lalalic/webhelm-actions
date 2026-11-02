@@ -2,6 +2,9 @@ import { sleep } from "../../_action_helpers.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
+  if (c?.confirm_publish !== true) {
+    throw new Error("Explicit confirm_publish:true and owner publication approval are required before upload");
+  }
   let step = 0;
   const next = (s) => log(`[${++step}/7] ${s}`);
   next("Opening TikTok upload page...");
@@ -117,6 +120,6 @@ export default async function post(
   }
   await sleep(5000);
   await h.capture_screenshot();
-  log("Done! Video posted to TikTok.");
-  return { status: "submitted", url: (await h.page_info()).url };
+  log("TikTok Post click submitted; verify real post URL and visibility before claiming success.");
+  return { status: "submitted_unverified", url: (await h.page_info()).url };
 }

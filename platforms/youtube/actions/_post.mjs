@@ -2,6 +2,9 @@ import { sleep } from "../../_action_helpers.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
+  if (c?.confirm_publish !== true) {
+    throw new Error("Explicit confirm_publish:true and owner publication approval are required before upload");
+  }
   let step = 0;
   const total = 7 + (c.tags?.length ? 1 : 0) + (c.thumbnail ? 1 : 0),
     next = (s) => log(`[${++step}/${total}] ${s}`);
@@ -109,6 +112,6 @@ export default async function post(
   }
   await sleep(5000);
   await h.capture_screenshot();
-  log("Done! Video saved as " + vis + ".");
-  return { status: "submitted", visibility: vis };
+  log("YouTube Save click submitted; verify the video in Studio before claiming success.");
+  return { status: "submitted_unverified", visibility: vis };
 }

@@ -3,6 +3,8 @@ status: migrated_unverified
 last_verified: null
 actions:
   post: actions/_post.mjs
+  inspect: actions/_inspect.mjs
+  monitor: actions/_monitor.mjs
 verification:
   status: migrated_unverified
   last_verified: null
@@ -17,6 +19,12 @@ provenance:
   source: skills/post/scripts/platforms/tiktok
   migrated_code: true
 flows:
+  inspect:
+    status: implemented_unverified
+    evidence: Read-only account and upload control probe, no publishing.
+  monitor:
+    status: implemented_unverified
+    evidence: Read-only Studio posts and comments extraction; Worknode live authentication pending.
   post:
     status: migrated_unverified
     evidence: Migrated action; current Browser Workspace live verification pending.
@@ -97,3 +105,5 @@ content_mapping:
   discovery_terms: tags
 notes:
 - The current adapter performs the final Post action; it has no draft mode.
+
+# Read-only inspect and monitor require authenticated Studio UI; zero rows are reported as unverified, never fabricated.
