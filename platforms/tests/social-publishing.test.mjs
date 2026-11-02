@@ -54,17 +54,17 @@ test("YouTube inspect fails closed on Chrome error and channel mismatch", async 
 
 test("TikTok monitor lists only observed posts, never fabricates zero counts", async () => {
   const sample = [{url:"https://www.tiktok.com/@lalalic001/video/123",summary:"Demo posted\n4 views"}];
-  const v = ui("about:blank",{data: sample},true);
+  const v = ui("about:blank",{data: {posts:sample,empty:false}},true);
   const out = await monitorTikTok({helpers:v.helpers,config:{mode:"posts"}});
   assert.equal(out.status,"ok");
   assert.deepEqual(out.posts,sample);
-  const empty = ui("about:blank",{data:[]});
+  const empty = ui("about:blank",{data:{posts:[],empty:false}});
   assert.equal((await monitorTikTok({helpers:empty.helpers})).status,"unverified");
   assert.equal(v.writes(),0);
 });
 
 test("TikTok comments report unverified when UI rows absent", async () => {
-  const v=ui("about:blank",{data:[]});
+  const v=ui("about:blank",{data:{comments:[],empty:false}});
   const out=await monitorTikTok({helpers:v.helpers,config:{mode:"comments"}});
   assert.equal(out.reason,"comment_rows_not_found");
   assert.deepEqual(out.comments,[]);
@@ -103,4 +103,25 @@ test("Monitor invalid mode fails before navigation",async () => {
     await assert.rejects(monitor({helpers:v.helpers,config:{mode:"delete"}}),/Unsupported/);
     assert.equal(v.navigations.length,0);
   }
+});
+
+test("TikTok inspect waits for hydrated profile before reporting readiness", async () => {
+  let reads = 0;
+  const h = {
+    goto_url:async()=>{},
+    wait_for_load:async()=>{},
+    page_info:async()=>({url:"https://www.tiktok.com/tiktokstudio"}),
+    wait:async()=>{},
+    js:async()=>++reads<3?{handle:null,upload:false}:{handle:"lalalic001",upload:true}
+  };
+  const out = await inspectTikTok({helpers:h,config:{expected_handle:"lalalic001"}});
+  assert.equal(out.status,"ready");
+  assert.equal(reads,3);
+});
+test("TikTok monitor distinguishes verified empty comments from parser failure", async () => {
+  const v=ui("about:blank",{data:{comments:[],empty:true}});
+  const out=await monitorTikTok({helpers:v.helpers,config:{mode:"comments"}});
+  assert.equal(out.status,"ok");
+  assert.equal(out.empty_state_verified,true);
+  assert.deepEqual(out.comments,[]);
 });
