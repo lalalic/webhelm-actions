@@ -78,6 +78,8 @@ test("YouTube monitor keeps channel identity and reads observed posts/comments",
   const out=await monitorYoutube({helpers:v.helpers,config:{mode:"posts",expected_channel_id:"UC123"}});
   assert.equal(out.status,"ok");
   assert.equal(out.channel_id,"UC123");
+  assert.equal(out.content_type,"shorts");
+  assert.ok(v.navigations.some(x => x.includes("/videos/short")));
   assert.equal(out.posts.length,1);
   assert.equal(v.writes(),0);
 });
