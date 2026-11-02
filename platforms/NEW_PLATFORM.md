@@ -36,4 +36,10 @@ Add tests in the new directory; `npm test` in this checkout discovers all `*.tes
 
 Verify `npx --yes webhelm@latest platform list` and `platform profile example-site`, run Actions tests and a real read-only Action through an owned Session. Then publish *reviewed* changes only to `lalalic/webhelm-actions` using `npx --yes webhelm@latest platform publish --message "feat(example-site): add inspector"`. This tests, commits only under `platforms/` and uses regular non-force Git push.
 
+## Optional durable queue integration
+
+The default for every new Platform Action is **direct execution**. Queue handling is an optional WebHelm **Runtime** feature, not something a site Action can enable in its manifest. **Only ChatGPT asynchronous `new-turn` is queued today.**
+
+If a future platform needs durable FIFO delivery, request a Runtime integration and follow the [WebHelm Queue Integration guide](https://github.com/lalalic/webhelm/blob/main/docs/QUEUE_INTEGRATION.md). The Runtime maintainer must provide the platform queue adapter/policy, partition and concurrency rules, optional enqueue-time merge, idempotency/recovery behavior, and routing from the Action dispatcher. `manifest.yaml` has **no queue registration field**, and `registerQueuePolicy()` is **not** an existing API. Platform Actions remain unaware of queues and execute with their normal `helpers`/`config` contract; the Extension, not a public Queue CLI, exposes queue management.
+
 When an existing Action breaks, edit the module in `$HOME/.local/webhelm/platforms/<slug>` directly, not the installed Skill or Runtime. `platform sync` pulls published updates fast-forward only and refuses to overwrite local edits. New Actions do **not** require a WebHelm npm release or Skill reinstall.
