@@ -100,5 +100,31 @@ export function assertNoObservedDuplicate(inventory, text, {
   if (inventory.posts.length > 0 || inventory.empty_state_verified !== true) {
     throw new Error("prepublish_inventory_incomplete: manual reconciliation required");
   }
+  // An empty published-post list says nothing about drafts, scheduled,
+  // processing, hidden or failed uploads. The current monitors do not
+  // supply a verified all-state inventory, so automated posting stays HOLD.
+  // A future monitor must generate this evidence from its own authenticated
+  // UI inspection; caller config flags are never consulted.
+  const draft = inventory.draft_inventory;
+  const states = ["drafts", "scheduled", "processing", "failed", "hidden"];
+  if (draft?.status !== "verified_empty" ||
+      draft.account !== expected_account ||
+      draft.all_pages_exhausted !== true ||
+      draft.total_items !== 0 ||
+      !Array.isArray(draft.checked_states) ||
+      !states.every(state => draft.checked_states.includes(state))) {
+    throw new Error("prepublish_draft_inventory_unverified: manual reconciliation required");
+  }
+  let draftUrl;
+  try { draftUrl = new URL(draft.source_url); } catch {
+    throw new Error("prepublish_draft_inventory_unverified");
+  }
+  const draftAge = now - Date.parse(draft.observed_at);
+  if (draftUrl.protocol !== "https:" || draftUrl.hostname !== host ||
+      !draftUrl.pathname.startsWith(platform === "tiktok" ? "/tiktokstudio/" : "/channel/" + expected_account + "/") ||
+      draftUrl.username || draftUrl.password ||
+      !Number.isFinite(draftAge) || draftAge < -30000 || draftAge > 120000) {
+    throw new Error("prepublish_draft_inventory_unverified");
+  }
   return { checked_count: inventory.posts.length, source_url: inventory.source_url };
 }

@@ -13,6 +13,10 @@ const config = (platform = "tiktok") => ({
 });
 const inv = (platform="tiktok", overrides={}) => ({
   status:"ok", posts:[], empty_state_verified:true,
+  draft_inventory:{status:"verified_empty",account:config(platform).expected_account,
+    source_url:platform==="tiktok"?"https://www.tiktok.com/tiktokstudio/content":"https://studio.youtube.com/channel/UCOoJX2s21KrOcRE0B46vx6g/videos/short",
+    observed_at:new Date().toISOString(), all_pages_exhausted:true, total_items:0,
+    checked_states:["drafts","scheduled","processing","failed","hidden"]},
   observed_at:new Date().toISOString(),
   source_url:platform==="tiktok"
     ? "https://www.tiktok.com/tiktokstudio/content"
@@ -81,6 +85,23 @@ test("verified empty inventory may pass; incomplete 30-row sample cannot", () =>
   assert.throws(()=>check("youtube",{posts:[{title:"different"}],empty_state_verified:false,coverage_complete:true}),/inventory_incomplete/);
   assert.throws(()=>check("tiktok",{posts:[{title:"unrelated"}],empty_state_verified:true,coverage_complete:true}),/inventory_incomplete/);
 });
+test("empty published posts without independent draft inspection fail closed", () => {
+  for (const platform of ["tiktok","youtube"]) {
+    assert.throws(()=>check(platform,{draft_inventory:null}),/draft_inventory_unverified/);
+    assert.throws(()=>check(platform,{draft_inventory:{status:"verified_empty"}}),/draft_inventory_unverified/);
+    assert.throws(()=>check(platform,{draft_inventory:undefined,coverage_complete:true,
+      drafts_empty:true,empty_state_verified:true}),/draft_inventory_unverified/);
+  }
+});
+test("draft inspection must cover all states and the exact target", () => {
+  const d=inv().draft_inventory;
+  assert.throws(()=>check("tiktok",{draft_inventory:{...d,account:"other"}}),/draft_inventory_unverified/);
+  assert.throws(()=>check("tiktok",{draft_inventory:{...d,checked_states:["drafts"]}}),/draft_inventory_unverified/);
+  assert.throws(()=>check("tiktok",{draft_inventory:{...d,all_pages_exhausted:false}}),/draft_inventory_unverified/);
+  assert.throws(()=>check("tiktok",{draft_inventory:{...d,total_items:1}}),/draft_inventory_unverified/);
+  assert.throws(()=>check("tiktok",{draft_inventory:{...d,observed_at:"2020-01-01T00:00:00Z"}}),/draft_inventory_unverified/);
+});
+
 test("observed matching content is blocked even when inventory is complete", () => {
   assert.throws(()=>check("tiktok",{posts:[{summary:"the NEW DISTINCT CAPTION was here"}],coverage_complete:true}),/possible_duplicate_post/);
 });

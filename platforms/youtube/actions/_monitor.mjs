@@ -32,5 +32,5 @@ export default async function monitor({ helpers: h, config: c = {} }) {
         const id = x.getAttribute('video-id') || a?.href.split('/video/')[1]?.split('/')[0] || null;
         return { title:(x.querySelector('#video-title')?.textContent||a?.textContent||'').trim().slice(0,180), url:id ? 'https://www.youtube.com/shorts/' + id : a?.href||null, post_id:id, summary:(x.innerText||'').trim().slice(0,900), metrics: {views:x.querySelector('#video-views,#views-count')?.textContent?.trim() || null, comments:x.querySelector('#video-comments,#comments-count')?.textContent?.trim() || null, likes:null} };
       }).filter(x=>x.title||x.url))()`);
-  return { status: rows?.length ? "ok" : "unverified", channel_id: channel, content_type: contentType, observed_at: new Date().toISOString(), source_url: page.url, posts: rows || [], reason: rows?.length ? null : "post_rows_not_found" };
+  return { status: rows?.length ? "ok" : "unverified", channel_id: channel, content_type: contentType, observed_at: new Date().toISOString(), source_url: page.url, posts: rows || [], reason: rows?.length ? null : "post_rows_not_found", draft_inventory: null /* all-state draft inspection not implemented */ };
 }

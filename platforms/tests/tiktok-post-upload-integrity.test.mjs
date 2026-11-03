@@ -8,7 +8,7 @@ import tiktokPost from "../tiktok/actions/_post.mjs";
 import youtubePost from "../youtube/actions/_post.mjs";
 
 function fixture(t, { changeOnUploadPage = false, nativeUploadFailure = false,
-  changeAfterNativeFailure = false } = {}) {
+  changeAfterNativeFailure = false, draftsVerified = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "tiktok-post-mock-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const video = join(dir, "synthetic-video.mp4");
@@ -35,7 +35,13 @@ function fixture(t, { changeOnUploadPage = false, nativeUploadFailure = false,
     page_info: async () => ({ url }),
     js: async script => {
       if (script.includes("const seen = new Set()"))
-        return { posts: [], empty: true };
+        return { posts: [], empty: true, draft_inventory: draftsVerified ? {
+          status: "verified_empty", account: "lalalic001",
+          observed_at: new Date().toISOString(),
+          source_url: "https://www.tiktok.com/tiktokstudio/content",
+          all_pages_exhausted: true, total_items: 0,
+          checked_states: ["drafts","scheduled","processing","failed","hidden"]
+        } : undefined };
       if (script.includes("handle =") && script.includes("upload"))
         return { handle: "lalalic001", upload: true };
       if (script.includes("login-modal")) return false;
@@ -68,6 +74,18 @@ function fixture(t, { changeOnUploadPage = false, nativeUploadFailure = false,
   };
   return { config, helpers, stats };
 }
+
+test("actual TikTok Action refuses a verified empty post list when drafts are not verified", async t => {
+  const { config, helpers, stats } = fixture(t, { draftsVerified: false });
+  await assert.rejects(
+    tiktokPost({config, helpers, log: () => {}}),
+    /prepublish_draft_inventory_unverified/
+  );
+  assert.equal(stats.monitorVisited, true, "must inspect real post inventory first");
+  assert.equal(stats.uploadPageVisited, false, "must not navigate to upload");
+  assert.equal(stats.nativeUploads, 0, "must not upload");
+  assert.deepEqual(stats.cdpCalls, [], "must not attempt fallback");
+});
 
 test("actual TikTok Action rejects changed bytes between initial and pre-upload checks without CDP fallback", async t => {
   const { config, helpers, stats } = fixture(t, { changeOnUploadPage: true });

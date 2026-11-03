@@ -66,7 +66,10 @@ export default async function monitor({ helpers: h, config: c = {} }) {
         return {
           status: "ok", observed_at: new Date().toISOString(),
           source_url: page.url, posts: data.posts,
-          empty_state_verified: !!data.empty
+          empty_state_verified: !!data.empty,
+          // Only a future authenticated, all-state draft inspector may fill
+          // this. Today's post-list DOM has no draft coverage evidence.
+          draft_inventory: data.draft_inventory || null
         };
       }
     }
