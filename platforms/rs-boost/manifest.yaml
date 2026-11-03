@@ -1,0 +1,11 @@
+platform: rs-boost
+display_name: RS Boost / ReelShort metadata
+status: verified_read_only
+url_patterns:
+  - https://cps.reelshort.com/*
+  - https://www.reelshort.com/*
+actions:
+  metadata: actions/_metadata.mjs
+verification:
+  status: verified_read_only
+  evidence: Official ReelShort title, plot, actors and episode count read from live series page; no RS Boost metadata API independently verified
