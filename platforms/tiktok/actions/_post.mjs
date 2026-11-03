@@ -1,17 +1,18 @@
 import { sleep } from "../../_action_helpers.mjs";
 import inspect from "./_inspect.mjs";
 import monitor from "./_monitor.mjs";
-import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt } from "../../_publish_guard.mjs";
+import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt, assertUploadMediaHash } from "../../_publish_guard.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
   const scope = assertPublishAuthorized(c, "tiktok");
+  assertUploadMediaHash(c);
   const account = await inspect({ helpers: h, config: { expected_handle: scope.destination_account } });
   if (account.status !== "ready") throw new Error("destination_account_unverified:" + (account.reason || account.status));
   const inventory = await monitor({ helpers: h, config: {
     mode: "posts", expected_handle: scope.destination_account
   } });
-  assertNoObservedDuplicate(inventory, c.caption);
+  assertNoObservedDuplicate(inventory, c.caption, { platform: "tiktok", expected_account: scope.destination_account });
   let step = 0;
   const next = (s) => log(`[${++step}/7] ${s}`);
   next("Opening TikTok upload page...");
@@ -37,6 +38,9 @@ export default async function post(
     throw new Error("Upload area not found. May not be logged in.");
   }
   next("Uploading video: " + c.video);
+  // Media integrity failure is never an upload transport error. Keep this
+  // outside the upload fallback catch so a changed file cannot reach CDP.
+  assertUploadMediaHash(c);
   try {
     await h.upload_file("input[type=file]", c.video);
   } catch {
@@ -47,6 +51,9 @@ export default async function post(
       fromIndex: 0,
       toIndex: 1,
     });
+    // The native upload may have failed after the file changed. Recheck
+    // before CDP fallback; failures must escape rather than retry blindly.
+    assertUploadMediaHash(c);
     await h.cdp("DOM.setFileInputFiles", {
       files: [c.video],
       nodeId: n.nodeIds[0],

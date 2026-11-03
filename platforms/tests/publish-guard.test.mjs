@@ -4,94 +4,83 @@ import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt }
 import postTikTok from "../tiktok/actions/_post.mjs";
 import postYoutube from "../youtube/actions/_post.mjs";
 
-const approved = (platform = "tiktok") => ({
-  video: "/private/episode/revision-3.mp4",
-  caption: "Episode promotion caption",
-  title: "Episode promotion title",
-  confirm_publish: true,
-  provider_id: "non-affiliate",
-  publication_attempt_id: "run-1/tiktok/attempt-1",
-  visibility: platform === "youtube" ? "PRIVATE" : "public",
-  approval: {
-    owner_approved: true, rights_verified: true,
-    approval_ref: "private/owner-approval.json",
-    creative_revision_id: "rev-3",
-    video_path: "/private/episode/revision-3.mp4",
-    account_id: platform === "youtube" ? "youtube-primary" : "tiktok-primary",
-    expected_account: platform === "youtube" ? "UCOoJX2s21KrOcRE0B46vx6g" : "lalalic001",
-    visibility: platform === "youtube" ? "PRIVATE" : "public",
-    link_placement: "profile"
-  }
+const config = (platform = "tiktok") => ({
+  confirm_publish: true, video: "/private/episode/revision-3.mp4",
+  caption: "Episode promotion caption", title: "Episode promotion title",
+  publication_attempt_id: "attempt-1",
+  expected_account: platform === "youtube" ? "UCOoJX2s21KrOcRE0B46vx6g" : "lalalic001",
+  visibility: platform === "youtube" ? "PRIVATE" : "public"
 });
+const inv = (platform="tiktok", overrides={}) => ({
+  status:"ok", posts:[], empty_state_verified:true,
+  observed_at:new Date().toISOString(),
+  source_url:platform==="tiktok"
+    ? "https://www.tiktok.com/tiktokstudio/content"
+    : "https://studio.youtube.com/channel/UCOoJX2s21KrOcRE0B46vx6g/videos/short",
+  ...overrides
+});
+const check = (platform="tiktok", changes={}) => assertNoObservedDuplicate(
+  inv(platform,changes), "new distinct caption", {
+    platform, expected_account:config(platform).expected_account
+  }
+);
 
-test("a confirm_publish boolean alone cannot open or upload anything", async () => {
-  for (const post of [postTikTok, postYoutube]) {
-    let browserOps = 0;
-    await assert.rejects(post({
-      config: { confirm_publish:true, provider_id:"non-affiliate", video:"/tmp/file.mp4" },
-      helpers: new Proxy({}, {get: () => () => { browserOps++; }}),
-      log: () => {}
-    }), /publication_approval_unverified/);
-    assert.equal(browserOps, 0);
+test("generic post requires explicit confirmation before any browser use", async () => {
+  for (const post of [postTikTok,postYoutube]) {
+    let browserOps=0;
+    await assert.rejects(post({config:{...config(),confirm_publish:false},
+      helpers:new Proxy({}, {get:()=>()=>{browserOps++;}}), log:()=>{}
+    }), /confirm_publish_required/);
+    assert.equal(browserOps,0);
   }
 });
-test("publication scope binds account, revision, media path and visibility", () => {
-  assert.equal(assertPublishAuthorized(approved(), "tiktok").creative_revision_id, "rev-3");
-  const m = approved(); m.video="/tmp/other.mp4";
-  assert.throws(() => assertPublishAuthorized(m, "tiktok"), /approved_video_mismatch/);
-  const v = approved("youtube"); v.vis = "PUBLIC";
-  assert.throws(() => assertPublishAuthorized(v, "youtube"), /approved_visibility_mismatch/);
-  const id = approved(); id.publication_attempt_id="";
-  assert.throws(() => assertPublishAuthorized(id, "tiktok"), /publication_attempt_id_required/);
+test("generic preflight validates only platform intent, not business claims", () => {
+  const c=config();
+  Object.assign(c,{provider_id:"anything",approval:{owner_approved:true,rights_verified:true,approval_ref:"nonexistent"},
+    account_id:"wrong-account",link_placement:"description"});
+  assert.equal(assertPublishAuthorized(c,"tiktok").destination_account,"lalalic001");
+  assert.equal(assertPublishAuthorized({...c,provider_id:"rs-boost"},"tiktok").destination_account,"lalalic001");
+  assert.equal(assertPublishAuthorized({...c,provider_id:"not-rs-boost"},"tiktok").destination_account,"lalalic001");
+  assert.throws(()=>assertPublishAuthorized({...c,expected_account:""},"tiktok"), /expected_tiktok_identity_required/);
+  assert.throws(()=>assertPublishAuthorized({...c,visibility:""},"tiktok"), /explicit_visibility_required/);
+  assert.throws(()=>assertPublishAuthorized({...c,publication_attempt_id:""},"tiktok"), /publication_attempt_id_required/);
 });
-test("RS Boost must have affirmative Safelist, rights and series link evidence", () => {
-  const c=approved(); c.provider_id="rs-boost";
-  assert.throws(() => assertPublishAuthorized(c,"tiktok"), /rsboost_rights_safelist_or_link_unverified/);
-  c.approval.safelist_status="Pending Update";
-  c.approval.episode_rights_ref="private/rights";
-  c.approval.content_promotion_link_ref="private/link";
-  assert.throws(() => assertPublishAuthorized(c,"tiktok"), /rsboost_rights_safelist_or_link_unverified/);
-  c.approval.safelist_status="approved";
-  c.approval.approved_link_placement_ref="private/link-placement";
-  assert.equal(assertPublishAuthorized(c,"tiktok").account_id, "tiktok-primary");
-});
-test("previous ambiguous attempt is never retried without manual reconciliation", () => {
-  const c=approved(); c.retry_of="run-1/tiktok/attempt-0";
-  assert.throws(() => assertPublishAuthorized(c,"tiktok"), /manual_reconciliation/);
-  const r=unverifiedReceipt(assertPublishAuthorized(approved(),"tiktok"), {submission_page_url:"https://www.tiktok.com/creator"});
-  assert.equal(r.status,"submitted_unverified");
-  assert.equal(r.post_url,null);
-  assert.equal(r.post_id,null);
+test("generic action blocks retries and does not claim publish success", () => {
+  assert.throws(()=>assertPublishAuthorized({...config(),retry_of:"attempt-0"},"tiktok"),/manual_reconciliation/);
+  const r=unverifiedReceipt(assertPublishAuthorized(config(),"tiktok"),{submission_page_url:"https://www.tiktok.com/creator"});
+  assert.equal(r.status,"submitted_unverified"); assert.equal(r.post_id,null);
   assert.equal(r.never_auto_retry,true);
 });
-test("incorrect authenticated account fails before upload", async () => {
-  for (const [post, platform] of [[postTikTok,"tiktok"],[postYoutube,"youtube"]]) {
+test("wrong live channel fails before upload", async () => {
+  for(const [post,platform] of [[postTikTok,"tiktok"],[postYoutube,"youtube"]]) {
     let uploads=0;
-    const helpers={
-      goto_url:async()=>{}, wait_for_load:async()=>{},
-      page_info:async()=>({url:platform==="tiktok"?"https://www.tiktok.com/tiktokstudio":"https://studio.youtube.com/channel/UCother"}),
-      js:async()=>({handle:"other-person",upload:true}),
-      upload_file:async()=>{uploads++;}
-    };
-    await assert.rejects(post({config:approved(platform),helpers,log:()=>{}}), /destination_account_unverified/);
+    const helpers={goto_url:async()=>{},wait_for_load:async()=>{},
+      page_info:async()=>({url:"https://studio.youtube.com/channel/UCwrong"}),
+      js:async()=>({handle:"other",upload:true}),
+      upload_file:async()=>{uploads++;}};
+    await assert.rejects(post({config:config(platform),helpers,log:()=>{}}),/destination_account_unverified/);
     assert.equal(uploads,0);
   }
 });
-
-test("duplicate probe stops on unresolved inventory and matches actual posted content", () => {
-  assert.throws(() => assertNoObservedDuplicate({status:"unverified",posts:[]}, "caption"), /inventory_unverified/);
-  assert.throws(() => assertNoObservedDuplicate({status:"ok",posts:[{summary:"the SAME Caption used"}]}, "same caption"), /possible_duplicate_post/);
-  assert.equal(assertNoObservedDuplicate({status:"ok",posts:[{summary:"different content"}]}, "new caption").checked_count, 1);
+test("missing posts array fails closed, including status ok", () => {
+  assert.throws(()=>check("tiktok",{posts:undefined}),/inventory_unverified/);
+  assert.throws(()=>check("youtube",{posts:undefined}),/inventory_unverified/);
+  assert.throws(()=>check("tiktok",{status:"unverified"}),/inventory_unverified/);
 });
-test("RS Boost cannot use unclickable Shorts description as approved placement", () => {
-  const c=approved("youtube"); c.provider_id="rs-boost";
-  Object.assign(c.approval, {safelist_status:"approved", episode_rights_ref:"private/episode-rights",content_promotion_link_ref:"private/link",approved_link_placement_ref:"private/link-placement",link_placement:"description"});
-  assert.throws(()=> assertPublishAuthorized(c,"youtube"),/rsboost_rights_safelist_or_link_unverified/);
-  c.approval.link_placement="profile";
-  assert.equal(assertPublishAuthorized(c,"youtube").account_id, "youtube-primary");
+test("trusted origin and freshness are mandatory", () => {
+  assert.throws(()=>check("tiktok",{source_url:"https://fake.example/tiktokstudio/content"}),/origin_unverified/);
+  assert.throws(()=>check("youtube",{source_url:"https://studio.youtube.com/channel/UCwrong/videos/short"}),/origin_unverified/);
+  assert.throws(()=>check("tiktok",{observed_at:null}),/stale_or_undated/);
+  assert.throws(()=>check("tiktok",{observed_at:"2020-01-01T00:00:00Z"}),/stale_or_undated/);
 });
-
-test("provider identity cannot be omitted to bypass RS Boost gate", () => {
-  const c=approved(); delete c.provider_id;
-  assert.throws(()=>assertPublishAuthorized(c,"tiktok"),/provider_id_required/);
+test("verified empty inventory may pass; incomplete 30-row sample cannot", () => {
+  assert.equal(check("tiktok").checked_count,0);
+  assert.throws(()=>check("tiktok",{empty_state_verified:false}),/inventory_incomplete/);
+  assert.throws(()=>check("tiktok",{posts:[{title:"other"}],empty_state_verified:false}),/inventory_incomplete/);
+  assert.throws(()=>check("youtube",{posts:Array.from({length:30},(_,i)=>({title:"other"+i})),empty_state_verified:false}),/inventory_incomplete/);
+  assert.throws(()=>check("youtube",{posts:[{title:"different"}],empty_state_verified:false,coverage_complete:true}),/inventory_incomplete/);
+  assert.throws(()=>check("tiktok",{posts:[{title:"unrelated"}],empty_state_verified:true,coverage_complete:true}),/inventory_incomplete/);
+});
+test("observed matching content is blocked even when inventory is complete", () => {
+  assert.throws(()=>check("tiktok",{posts:[{summary:"the NEW DISTINCT CAPTION was here"}],coverage_complete:true}),/possible_duplicate_post/);
 });

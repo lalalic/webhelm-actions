@@ -1,17 +1,18 @@
 import { sleep } from "../../_action_helpers.mjs";
 import inspect from "./_inspect.mjs";
 import monitor from "./_monitor.mjs";
-import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt } from "../../_publish_guard.mjs";
+import { assertPublishAuthorized, assertNoObservedDuplicate, unverifiedReceipt, assertUploadMediaHash } from "../../_publish_guard.mjs";
 export default async function post(
   { config: c, helpers: h, log = console.log },
 ) {
   const scope = assertPublishAuthorized(c, "youtube");
+  assertUploadMediaHash(c);
   const account = await inspect({ helpers: h, config: { expected_channel_id: scope.destination_account } });
   if (account.status !== "ready") throw new Error("destination_account_unverified:" + (account.reason || account.status));
   const inventory = await monitor({ helpers: h, config: {
     mode: "posts", expected_channel_id: scope.destination_account, content_type: c.content_type || "shorts"
   } });
-  assertNoObservedDuplicate(inventory, c.title);
+  assertNoObservedDuplicate(inventory, c.title, { platform: "youtube", expected_account: scope.destination_account });
   let step = 0;
   const total = 7 + (c.tags?.length ? 1 : 0) + (c.thumbnail ? 1 : 0),
     next = (s) => log(`[${++step}/${total}] ${s}`);
@@ -36,6 +37,7 @@ export default async function post(
     throw new Error("Not logged in");
   }
   next("Uploading video...");
+  assertUploadMediaHash(c);
   await h.upload_file("input[type=file]", c.video);
   await sleep(5000);
   next("Waiting for processing...");
