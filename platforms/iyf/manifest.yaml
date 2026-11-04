@@ -5,6 +5,8 @@ url_patterns:
   - https://www.iyf.tv/*
 actions:
   find: actions/_find.mjs
+  search: actions/_search.mjs
+  episodes: actions/_episodes.mjs
   open: actions/_open.mjs
 verification:
   status: migrated_unverified

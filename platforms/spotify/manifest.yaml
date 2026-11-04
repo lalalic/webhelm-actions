@@ -1,0 +1,10 @@
+platform: spotify
+display_name: Spotify Web
+status: unverified
+last_verified: null
+url_patterns:
+  - https://open.spotify.com/*
+actions:
+  library: actions/_library.mjs
+  search: actions/_search.mjs
+  play: actions/_play.mjs
