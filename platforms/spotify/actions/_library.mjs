@@ -32,7 +32,9 @@ export default async function library({config = {}, helpers:h, log=()=>{}}) {
   const auth = await verifySpotifyLogin(h);
   if (!auth.ok) return {ok:false,source:'spotify_web',...auth};
   await expandLibrary(h);
-  const val = await h.js(`(()=>{
+  let resultData;
+  for (let attempt = 0; attempt < 7; attempt++) {
+    const val = await h.js(`(()=>{
     const container=document.querySelector('[role="treegrid"][aria-label="Your Library"]') ||
       document.querySelector('[role="grid"][aria-label="Your Library"]');
     if(!container)return JSON.stringify({items:[],error:'library_grid_missing'});
@@ -49,7 +51,11 @@ export default async function library({config = {}, helpers:h, log=()=>{}}) {
     }
     return JSON.stringify({items:[...new Map(items.map(x=>[x.url,x])).values()].slice(0,100)});
   })()`);
-  const result=parseBrowserData(val);
+    resultData=parseBrowserData(val);
+    if(resultData.error || resultData.items?.length)break;
+    if(h.wait)await h.wait(.5);
+  }
+  const result=resultData;
   if (result.error) return {ok:false,source:'spotify_web',error:result.error};
   const output={ok:true,source:'spotify_web',scope:'your_library',items:result.items};
   log('Spotify Web: ' + output.items.length + ' library playlist entries verified.');
