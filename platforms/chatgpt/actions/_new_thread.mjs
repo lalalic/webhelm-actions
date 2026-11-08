@@ -85,6 +85,9 @@ export async function run({ helpers, config = {} }) {
     await sleep(200);
   }
   if (!thread_id) throw new Error("ChatGPT did not assign a durable thread id");
+  if (project_id && !new URL(thread_url).pathname.includes("/g/" + project_id)) {
+    throw new Error("ChatGPT new thread is not inside the requested Project");
+  }
   return {
     status: "submitted",
     mode: "new-thread",

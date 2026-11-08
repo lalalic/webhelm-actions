@@ -54,13 +54,27 @@ export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
       : { send_enabled: false };
   }
   if (!send) return { send_enabled: true };
-  if (!(await js(CLICK_SEND_JS))) {
+  // Use WebHelm's real click helper when available. ChatGPT's React
+  // composer can ignore synthetic element.click(), even while showing Send.
+  // Older/non-browser callers retain the legacy JS-click fallback.
+  if (typeof helpers.click === "function") {
+    const selector = await js(
+      `(() => {const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]'];for(const s of selectors){const b=document.querySelector(s);if(b&&!b.disabled&&b.getClientRects().length)return s;}return null;})()`,
+    );
+    if (!selector) throw new Error("URL-prefilled Send control disappeared");
+    await helpers.click(selector);
+  } else if (!(await js(CLICK_SEND_JS))) {
     throw new Error("URL-prefilled Send became unavailable before click");
   }
+  let verified;
   try {
-    await waitUntilStable(
-      async () => ({ send_disabled: !(await sendEnabled()) }),
-      (s) => s.send_disabled,
+    verified = await waitUntilStable(
+      async () => {
+        const turns = await js(`(() => [...document.querySelectorAll('[data-message-author-role="user"]')].map(e=>(e.innerText||e.textContent||'').trim()).concat([...document.querySelectorAll('h4')].filter(e=>(e.textContent||'').trim()==='You said:').map(e=>(e.parentElement?.innerText||'').replace(/^You said:\\s*/,'').trim())))()`);
+        const accepted = Array.isArray(turns) && turns.some(t => t.includes(prompt.slice(0, Math.min(120, prompt.length))));
+        return { send_disabled: !(await sendEnabled()), accepted };
+      },
+      (s) => s.accepted || s.send_disabled,
       {
         timeout: 30,
         interval: 0.2,
@@ -75,5 +89,8 @@ export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
     e.diagnostic = { reason: "post_submit_send_state_unverified" };
     throw e;
   }
-  return { verified_by: "send-button-disabled", turn: { id: null } };
+  return {
+    verified_by: verified.accepted ? "user-turn" : "send-button-disabled",
+    turn: { id: null },
+  };
 }

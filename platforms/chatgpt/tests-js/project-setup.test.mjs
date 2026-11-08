@@ -8,14 +8,17 @@ const THREAD_ID = "6ae99a2e-aaaa-bbbb-cccc-ddddeeeeffff";
 function fakeProjectBrowser({ instructions, initialPrompt, knownThread = false }) {
   const state = {
     url: "https://chatgpt.com/", settingsOpen: false, menuOpen: false,
+    sendEnabled: true,
     settingsPersisted: "", draftInstructions: "", composerValue: "", sent: knownThread,
     knownThread,
     newProjectClicks: 0, projectSettingsClicks: 0, memoryMutations: 0,
-    sendClicks: 0, newTabs: 0, projectNavigations: 0,
+    sendClicks: 0, newTabs: 0, projectNavigations: 0, visitedUrls: [],
   };
   const helper = {
     async new_tab(url) { state.newTabs++; state.url = url; },
-    async goto_url(url) { state.url = url; state.projectNavigations++; },
+    async goto_url(url) {
+      state.url = url; state.projectNavigations++; state.visitedUrls.push(url);
+    },
     async wait_for_load() {},
     async page_info() { return { url: state.url }; },
     async fill_input(selector, value) {
@@ -29,8 +32,18 @@ function fakeProjectBrowser({ instructions, initialPrompt, knownThread = false }
       state.sendClicks++;
       state.url = `https://chatgpt.com/g/${PROJECT_ID}/c/${THREAD_ID}`;
       state.sent = true;
+      state.sendEnabled = false;
     },
     async js(source) {
+      if (source.includes("const b=[...document.querySelectorAll('button')],f=n=>b.find")) return "chat";
+      if (source.includes("could not load this chatgpt conversation")) return null;
+      if (source.includes("const b=document.querySelector('button[data-testid=\"send-button\"]") &&
+          source.includes("return !!b")) return state.sendEnabled;
+      if (source.includes("const selectors=['button[aria-label=\"Send\"]'")) return 'button[aria-label="Send"]';
+      if (source.includes("const selectors=['button[aria-label=\"Send\"]'")) return 'button[aria-label="Send"]';
+      if (source.includes("const turns=")) return state.sent ? [initialPrompt] : [];
+      if (source.includes("data-message-author-role=\"user\"") && source.includes(".concat("))
+        return state.sent ? [initialPrompt] : [];
       if (source.includes("const rows=document.querySelectorAll")) return "rows";
       if (source.includes("const row=[...document.querySelectorAll") &&
           source.includes("data-app-action-sidebar-project-row"))
@@ -111,6 +124,9 @@ test("project-setup reuses existing orchestrator Project, preserves memory, veri
   assert.equal(state.projectSettingsClicks, 2, "menu opens once per settings visit");
   assert.equal(state.settingsPersisted, instructions);
   assert.equal(state.sendClicks, 1, "no duplicate initial user turn");
+  assert.ok(state.visitedUrls.some(url =>
+    url.includes("/g/" + PROJECT_ID + "/project?prompt=")),
+    "Project bootstrap must delegate ?prompt= submission to new-thread");
 });
 
 test("project-setup recovers a submitted main thread from the verified Project without a second send", async () => {

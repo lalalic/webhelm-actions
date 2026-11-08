@@ -1,10 +1,10 @@
 import {
-  COMPOSER_JS,
   pathThreadId,
   setField,
   sleep,
   waitUntilStable,
 } from "./_action-common.mjs";
+import { run as newThread } from "./_new_thread.mjs";
 const projectId = (url) =>
   String(url || "").match(/\/g\/(g-p-[A-Za-z0-9]{32})/)?.[1] || null;
 const fire =
@@ -262,50 +262,22 @@ export async function run({ helpers: h, config: c = {} }) {
       target_id: h.target_id || h.targetId,
     };
   }
-  const selector = await waitUntilStable(() => h.js(COMPOSER_JS), Boolean, {
-    timeout: 15, stableSamples: 1,
-    phase: "ChatGPT Project composer", sleep,
+  // Reuse the normal new-thread ?prompt= submission flow; do not fork
+  // composer filling, Send clicks, or thread receipt handling here.
+  const receipt = await newThread({
+    helpers: h,
+    config: { project_id: project.project_id, message: initial },
   });
-  await h.fill_input(selector, initial, { clear_first: true });
-  await waitUntilStable(
-    () => h.js(
-      `(() => {const e=document.querySelector(${JSON.stringify(selector)});const t=(e?.innerText||e?.textContent||e?.value||'').replace(/\\s+/g,' ').trim();const b=document.querySelector('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"]');return t===${JSON.stringify(initial.replace(/\s+/g, ' ').trim())}&&!!b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true';})()`,
-    ),
-    Boolean, { timeout: 10, stableSamples: 1, phase: "Project initial turn ready", sleep },
-  );
-  // Use WebHelm's browser click helper: it performs the real UI event
-  // sequence. Raw Input.dispatchMouseEvent failed to submit on the 2026 UI.
-  const sendSelector = await h.js(
-    `(() => {
-      for(const s of ['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]']){
-        const b=document.querySelector(s);if(b&&!b.disabled&&b.getBoundingClientRect().width>0)return s;
-      }
-      return null;
-    })()`,
-  );
-  if (!sendSelector) throw new Error("ChatGPT Project initial Send was not available");
-  await h.click(sendSelector);
-  const end = Date.now() + 45_000;
-  let threadUrl = "";
-  let threadId = null;
-  while (Date.now() < end) {
-    threadUrl = (await h.page_info()).url || "";
-    threadId = pathThreadId(threadUrl);
-    if (threadId && !threadUrl.includes("local-chatgpt") &&
-        threadUrl.includes(project.project_id)) break;
-    await sleep(250);
-  }
+  const threadId = receipt.thread_id;
+  const threadUrl = receipt.thread_url || "";
   if (!threadId || !threadUrl.includes(project.project_id) ||
-      threadUrl.includes("local-chatgpt")) {
-    throw new Error("ChatGPT did not assign a durable thread inside the verified Project");
+      !threadUrl.includes('/c/' + threadId)) {
+    throw new Error("ChatGPT new-thread did not verify a durable Project thread");
   }
-  // The thread is durable once the user turn is accepted. The assistant may
-  // still be responding; never present its answer as part of this receipt.
-  const userTurnAccepted = await waitUntilStable(
+  await waitUntilStable(
     verifiedInitialTurn,
-    Boolean, { timeout: 18, stableSamples: 1, phase: "Project main user turn", sleep },
+    Boolean, { timeout: 20, stableSamples: 1, phase: "Project main user turn", sleep },
   );
-  if (!userTurnAccepted) throw new Error("Initial ChatGPT user turn was not accepted");
   return {
     status: "completed",
     project_id: project.project_id,

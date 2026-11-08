@@ -39,22 +39,35 @@ export async function run({ helpers, config = {} }) {
     });
   }
   const { goto_url, wait_for_load, page_info } = helpers;
-  const url = targetUrl({ project_id, thread_id, prompt: message });
+  // The thread ID alone is sufficient. ChatGPT may canonicalize this
+  // ordinary URL to its Project-scoped /g/<id>[-slug]/c/<thread> URL.
+  const url = targetUrl({ thread_id, prompt: message });
   await goto_url(url);
   await wait_for_load();
   await requireNoDeliveryError(helpers);
-  if (
-    new URL((await page_info()).url).pathname.replace(/\/$/, "") !==
-      new URL(url).pathname.replace(/\/$/, "")
-  ) throw new Error("ChatGPT thread redirect mismatch");
+  // A plain /c/<id>?prompt= URL can canonically redirect to
+  // /g/<project-id>[-slug]/c/<id>. Verify the ID, not pathname equality.
+  const observedUrl = (await page_info()).url;
+  const observedPath = new URL(observedUrl).pathname.replace(/\/$/, "");
+  if (decodeURIComponent(observedPath.split("/").pop() || "") !== thread_id ||
+      !observedPath.includes("/c/")) {
+    throw new Error("ChatGPT thread redirect mismatch");
+  }
+  const observedScope = observedPath.match(/\/g\/([^/]+)\/c\//)?.[1] || null;
+  if (project_id && observedScope &&
+      observedScope !== project_id &&
+      !observedScope.startsWith(project_id + "-")) {
+    throw new Error("ChatGPT thread redirected outside requested Project");
+  }
   await requireNoDeliveryError(helpers);
   const receipt = await prefilledSubmit(helpers, message);
+  const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",
     mode: "new-turn",
     project_id,
     thread_id,
-    thread_url: url.split("?")[0],
+    thread_url: canonicalUrl,
     verified_by: receipt.verified_by,
     user_message_id: receipt.turn?.id || null,
   };

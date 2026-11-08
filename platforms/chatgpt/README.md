@@ -81,10 +81,18 @@ runner use the same config field and validation rules.
 `project-setup` **reuses** a Project whose sidebar name matches `project_name`
 instead of creating a duplicate. It updates Project Instructions, reopens
 settings to verify they persisted, and preserves existing memory policy
-(Default or Project-only). It then sends one initializing user turn and verifies
-the resulting durable Project thread URL and user turn before returning a
+(Default or Project-only). It then calls the existing `new-thread` Action with a Project-scoped
+`?prompt=` URL (no custom composer implementation), verifies the resulting
+durable Project thread URL and user turn, then returns a
 `project_reused`, `project_id`, `thread_id` receipt. Project settings menu
 triggers are clicked once (never inside polling loops), and browser readiness
 timeouts are in seconds. A returned thread ID verifies submission, not the
 assistant's final answer. Chat Gateway persists this receipt and avoids
 re-running project-setup while its bound head remains valid.
+
+For subsequent messages, `new-turn` reuses the ordinary
+`https://chatgpt.com/c/<threadId>?prompt=<message>` URL: ChatGPT may
+canonicalize this to a Project-scoped `/g/<projectId>[-slug]/c/<threadId>`
+path. The Action verifies the thread ID and rejects a different Project
+when its canonical scope is visible, rather than requiring literal pathname
+equality. The asynchronous `new-turn` queue behavior remains unchanged.

@@ -118,13 +118,14 @@ test("new-turn sync mode uses caller Session and returns verified receipt", asyn
     "../runtime/lifecycle-common.mjs"
   );
   let enabled = true, clicked = 0, nav = "";
-  const url = targetUrl({ project_id: "p", thread_id: "t", prompt: "hello" });
+  const url = targetUrl({ thread_id: "t", prompt: "hello" });
+  const scopedUrl = "https://chatgpt.com/g/p-project/c/t";
   const helpers = {
     goto_url: async (value) => {
       nav = value;
     },
     wait_for_load: async () => {},
-    page_info: async () => ({ url }),
+    page_info: async () => ({ url: scopedUrl }),
     js: async (source) => {
       if (source === SEND_ENABLED_JS) return enabled;
       if (source === CLICK_SEND_JS) {
@@ -142,9 +143,10 @@ test("new-turn sync mode uses caller Session and returns verified receipt", asyn
     helpers,
     config: { mode: "sync", project_id: "p", thread_id: "t", message: "hello" },
   });
-  assert.equal(nav, url);
+  assert.equal(nav, url, "new-turn navigates by ordinary thread ID and ?prompt");
   assert.equal(clicked, 1);
   assert.equal(result.status, "submitted");
+  assert.equal(result.thread_url, scopedUrl, "canonical Project redirect is returned");
   assert.equal(result.verified_by, "send-button-disabled");
 });
 
@@ -195,4 +197,20 @@ test('read-only ChatGPT validate waits for hydrated composer instead of early fa
   };
   assert.equal(await run({helpers}),true);
   assert.equal(stateCalls,3);
+});
+
+test("new-turn sync rejects a redirect to a different thread before sending", async () => {
+  const { run } = await import("../actions/_new_turn.mjs");
+  let submitted = false;
+  const helpers = {
+    goto_url: async () => {},
+    wait_for_load: async () => {},
+    page_info: async () => ({ url: "https://chatgpt.com/g/project/c/different-id" }),
+    js: async () => null,
+    click: async () => { submitted = true; },
+  };
+  await assert.rejects(() => run({ helpers, config: {
+    mode: "sync", thread_id: "expected-id", message: "test", project_id: "project",
+  }}), /thread redirect mismatch/);
+  assert.equal(submitted, false, "never submit to a different thread");
 });
