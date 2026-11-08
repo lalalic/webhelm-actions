@@ -129,6 +129,15 @@ export async function run({ helpers: h, config: c = {} }) {
     h.js(`(() => {const d=document.querySelector('[role="dialog"]');return !!d&&/project settings/i.test(d.textContent||"");})()`);
   const openSettings = async () => {
     if (await hasSettingsDialog()) return;
+    // Navigation load events precede React's Project header hydration.
+    // Poll for a visible control WITHOUT interacting, then click once.
+    await waitUntilStable(
+      () => h.js(
+        `(() => {const b=[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='Project actions');return !!b&&b.getBoundingClientRect().width>0;})()`,
+      ),
+      Boolean,
+      { timeout: 20, stableSamples: 2, phase: "Project actions control ready", sleep },
+    );
     // Menu triggers are TOGGLES. Never click them from within a readiness
     // poll: repeated samples would alternately open/close the same menu.
     const opened = await h.js(
