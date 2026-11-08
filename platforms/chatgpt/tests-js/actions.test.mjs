@@ -214,3 +214,26 @@ test("new-turn sync rejects a redirect to a different thread before sending", as
   }}), /thread redirect mismatch/);
   assert.equal(submitted, false, "never submit to a different thread");
 });
+
+test("new-turn shared submission recognizes the accepted You said user turn even if Send remains enabled", async () => {
+  const { prefilledSubmit, SEND_ENABLED_JS } = await import("../runtime/lifecycle-common.mjs");
+  const prompt = "WebHelm new-turn redirect verification for Neo Mobile Chat Gateway";
+  let sent = 0;
+  const helpers = {
+    js: async source => {
+      if (source === SEND_ENABLED_JS) return true; // composer can re-enable rapidly
+      if (source.includes("const selectors=['button[aria-label=")) return 'button[aria-label="Send"]';
+      if (source.includes("h4[data-conversation-role=")) {
+        return sent ? ["You said: " + prompt] : [];
+      }
+      return null;
+    },
+    click: async selector => {
+      assert.equal(selector, 'button[aria-label="Send"]');
+      sent++;
+    },
+  };
+  const receipt = await prefilledSubmit(helpers, prompt);
+  assert.equal(sent, 1);
+  assert.equal(receipt.verified_by, "user-turn");
+});

@@ -37,9 +37,8 @@ function fakeProjectBrowser({ instructions, initialPrompt, knownThread = false }
     async js(source) {
       if (source.includes("const b=[...document.querySelectorAll('button')],f=n=>b.find")) return "chat";
       if (source.includes("could not load this chatgpt conversation")) return null;
-      if (source.includes("const b=document.querySelector('button[data-testid=\"send-button\"]") &&
+      if (source.includes("const buttons=[...document.querySelectorAll('button[data-testid=") &&
           source.includes("return !!b")) return state.sendEnabled;
-      if (source.includes("const selectors=['button[aria-label=\"Send\"]'")) return 'button[aria-label="Send"]';
       if (source.includes("const selectors=['button[aria-label=\"Send\"]'")) return 'button[aria-label="Send"]';
       if (source.includes("const turns=")) return state.sent ? [initialPrompt] : [];
       if (source.includes("data-message-author-role=\"user\"") && source.includes(".concat("))
