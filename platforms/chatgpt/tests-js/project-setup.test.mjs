@@ -34,6 +34,9 @@ function fakeProjectBrowser({ instructions, initialPrompt }) {
           source.includes("/project settings/i.test") && source.includes("return !!d"))
         return state.settingsOpen;
       if (source.includes("const b=[...document.querySelectorAll('button')]") &&
+          source.includes("Project actions") && source.includes("return !!b&&b.getBoundingClientRect().width>0"))
+        return true;
+      if (source.includes("const b=[...document.querySelectorAll('button')]") &&
           source.includes("Project actions") && source.includes("fire(b)")) {
         state.menuOpen = !state.menuOpen;
         state.projectSettingsClicks++;
