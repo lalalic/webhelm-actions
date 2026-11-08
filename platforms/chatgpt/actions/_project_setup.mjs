@@ -219,25 +219,72 @@ export async function run({ helpers: h, config: c = {} }) {
   }
   const initial = String(c.initial_prompt || "").trim() ||
     "Initialize the Neo Mobile orchestrator main thread and reply READY.";
+  const threadTitleHint = String(c.thread_title_hint || "").trim().toLowerCase();
+  const verifiedInitialTurn = () => h.js(
+    `(() => {const expected=${JSON.stringify(initial.slice(0, 120))};const text=document.body?.innerText||'';return text.includes('You said:')&&text.includes(expected);})()`,
+  );
+  // Recover a thread that was submitted but whose receipt was lost. Only use
+  // a matching title WITHIN this verified Project, never a global recent chat.
+  let recoveredThread = null;
+  if (threadTitleHint) {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      recoveredThread = await h.js(
+        `(() => {
+          const id=${JSON.stringify(project.project_id)},hint=${JSON.stringify(threadTitleHint)};
+          const link=[...document.querySelectorAll('a[href]')].find(a=>{
+            const href=a.getAttribute('href')||'',title=(a.innerText||a.textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();
+            return href.includes('/g/'+id+'/c/')&&title===hint;
+          });
+          return link?new URL(link.getAttribute('href'),location.origin).href:null;
+        })()`,
+      );
+      if (recoveredThread) break;
+      await sleep(250);
+    }
+  }
+  if (recoveredThread) {
+    await h.goto_url(recoveredThread);
+    await h.wait_for_load();
+    const threadUrl = (await h.page_info()).url || recoveredThread;
+    const threadId = pathThreadId(threadUrl);
+    if (!threadId || !threadUrl.includes(project.project_id)) {
+      throw new Error("Existing main thread did not belong to the verified Project");
+    }
+    await waitUntilStable(verifiedInitialTurn, Boolean, {
+      timeout: 15, stableSamples: 1, phase: "existing Project main thread user turn", sleep,
+    });
+    return {
+      status: "completed", project_id: project.project_id,
+      project_url: project.project_url, project_reused: project.reused,
+      memory, thread_id: threadId, thread_url: threadUrl.split("?")[0],
+      thread_reused: true, thread_submission_verified: true,
+      target_id: h.target_id || h.targetId,
+    };
+  }
   const selector = await waitUntilStable(() => h.js(COMPOSER_JS), Boolean, {
     timeout: 15, stableSamples: 1,
     phase: "ChatGPT Project composer", sleep,
   });
-  await setField(h, selector, initial);
+  await h.fill_input(selector, initial, { clear_first: true });
   await waitUntilStable(
     () => h.js(
       `(() => {const e=document.querySelector(${JSON.stringify(selector)});const t=(e?.innerText||e?.textContent||e?.value||'').replace(/\\s+/g,' ').trim();const b=document.querySelector('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"]');return t===${JSON.stringify(initial.replace(/\s+/g, ' ').trim())}&&!!b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true';})()`,
     ),
     Boolean, { timeout: 10, stableSamples: 1, phase: "Project initial turn ready", sleep },
   );
-  // A single physical CDP click is more reliable than synthetic .click() for
-  // ChatGPT's composer, and must never be retried without checking for a turn.
-  const point = await h.js(
-    `(() => {const b=document.querySelector('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"]');if(!b||b.disabled)return null;const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`,
+  // Use WebHelm's browser click helper: it performs the real UI event
+  // sequence. Raw Input.dispatchMouseEvent failed to submit on the 2026 UI.
+  const sendSelector = await h.js(
+    `(() => {
+      for(const s of ['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]']){
+        const b=document.querySelector(s);if(b&&!b.disabled&&b.getBoundingClientRect().width>0)return s;
+      }
+      return null;
+    })()`,
   );
-  if (!point) throw new Error("ChatGPT Project initial Send was not available");
-  await h.cdp('Input.dispatchMouseEvent', {type:'mousePressed',x:point.x,y:point.y,button:'left',clickCount:1});
-  await h.cdp('Input.dispatchMouseEvent', {type:'mouseReleased',x:point.x,y:point.y,button:'left',clickCount:1});
+  if (!sendSelector) throw new Error("ChatGPT Project initial Send was not available");
+  await h.click(sendSelector);
   const end = Date.now() + 45_000;
   let threadUrl = "";
   let threadId = null;
@@ -255,9 +302,7 @@ export async function run({ helpers: h, config: c = {} }) {
   // The thread is durable once the user turn is accepted. The assistant may
   // still be responding; never present its answer as part of this receipt.
   const userTurnAccepted = await waitUntilStable(
-    () => h.js(
-      `(() => {const expected=${JSON.stringify(initial.replace(/\s+/g,' ').trim())};return [...document.querySelectorAll('[data-message-author-role="user"]')].some(e=>(e.innerText||e.textContent||'').replace(/\\s+/g,' ').includes(expected));})()`,
-    ),
+    verifiedInitialTurn,
     Boolean, { timeout: 18, stableSamples: 1, phase: "Project main user turn", sleep },
   );
   if (!userTurnAccepted) throw new Error("Initial ChatGPT user turn was not accepted");
