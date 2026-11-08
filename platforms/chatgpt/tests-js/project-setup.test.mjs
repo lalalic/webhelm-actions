@@ -5,10 +5,11 @@ import { run } from "../actions/_project_setup.mjs";
 const PROJECT_ID = "g-p-6af0d638bb04819190be1b77ae7e648e";
 const THREAD_ID = "6ae99a2e-aaaa-bbbb-cccc-ddddeeeeffff";
 
-function fakeProjectBrowser({ instructions, initialPrompt }) {
+function fakeProjectBrowser({ instructions, initialPrompt, knownThread = false }) {
   const state = {
     url: "https://chatgpt.com/", settingsOpen: false, menuOpen: false,
-    settingsPersisted: "", draftInstructions: "", composerValue: "", sent: false,
+    settingsPersisted: "", draftInstructions: "", composerValue: "", sent: knownThread,
+    knownThread,
     newProjectClicks: 0, projectSettingsClicks: 0, memoryMutations: 0,
     sendClicks: 0, newTabs: 0, projectNavigations: 0,
   };
@@ -17,13 +18,17 @@ function fakeProjectBrowser({ instructions, initialPrompt }) {
     async goto_url(url) { state.url = url; state.projectNavigations++; },
     async wait_for_load() {},
     async page_info() { return { url: state.url }; },
-    async fill_input() { throw Error("reusing a Project must not request project-name input"); },
-    async cdp(method, value) {
-      if (method === "Input.dispatchMouseEvent" && value.type === "mouseReleased") {
-        state.sendClicks++;
-        state.url = `https://chatgpt.com/g/${PROJECT_ID}/c/${THREAD_ID}`;
-        state.sent = true;
+    async fill_input(selector, value) {
+      if (selector !== "#prompt-textarea") {
+        throw Error("reusing a Project must not request project-name input");
       }
+      state.composerValue = value;
+    },
+    async click(selector) {
+      assert.equal(selector, 'button[aria-label="Send"]');
+      state.sendClicks++;
+      state.url = `https://chatgpt.com/g/${PROJECT_ID}/c/${THREAD_ID}`;
+      state.sent = true;
     },
     async js(source) {
       if (source.includes("const rows=document.querySelectorAll")) return "rows";
@@ -70,10 +75,16 @@ function fakeProjectBrowser({ instructions, initialPrompt }) {
         return !state.settingsOpen;
       if (source.includes("querySelector('textarea[name=\"project-instructions\"]')"))
         return state.settingsPersisted;
+      if (source.includes("const link=[...document.querySelectorAll('a[href]')].find")) {
+        return state.knownThread
+          ? `https://chatgpt.com/g/${PROJECT_ID}/c/${THREAD_ID}`
+          : null;
+      }
+      if (source.includes("document.body?.innerText") &&
+          source.includes("You said:")) return state.sent;
       if (source.includes("const ss=")) return "#prompt-textarea";
       if (source.includes("const t=(e?.innerText")) return state.composerValue === initialPrompt;
-      if (source.includes("const r=b.getBoundingClientRect()")) return { x: 100, y: 100 };
-      if (source.includes("data-message-author-role=\"user\"")) return state.sent;
+      if (source.includes("for(const s of")) return 'button[aria-label="Send"]';
       throw Error("unexpected mocked browser JS: " + source.slice(0, 180));
     },
   };
@@ -86,6 +97,7 @@ test("project-setup reuses existing orchestrator Project, preserves memory, veri
   const { helper, state } = fakeProjectBrowser({ instructions, initialPrompt });
   const result = await run({ helpers: helper, config: {
     project_name: "orchestrator", instructions, initial_prompt: initialPrompt,
+    thread_title_hint: "Initialize Neo Orchestrator",
   } });
   assert.equal(result.project_reused, true);
   assert.equal(result.project_id, PROJECT_ID);
@@ -99,4 +111,19 @@ test("project-setup reuses existing orchestrator Project, preserves memory, veri
   assert.equal(state.projectSettingsClicks, 2, "menu opens once per settings visit");
   assert.equal(state.settingsPersisted, instructions);
   assert.equal(state.sendClicks, 1, "no duplicate initial user turn");
+});
+
+test("project-setup recovers a submitted main thread from the verified Project without a second send", async () => {
+  const instructions = "Follow the Neo Mobile project bootstrap contract.";
+  const initialPrompt = "Initialize Neo Mobile main orchestrator thread. Reply READY.";
+  const { helper, state } = fakeProjectBrowser({ instructions, initialPrompt, knownThread: true });
+  const result = await run({ helpers: helper, config: {
+    project_name: "orchestrator", instructions, initial_prompt: initialPrompt,
+    thread_title_hint: "Initialize Neo Orchestrator",
+  } });
+  assert.equal(result.project_id, PROJECT_ID);
+  assert.equal(result.thread_id, THREAD_ID);
+  assert.equal(result.thread_reused, true);
+  assert.equal(result.status, "completed");
+  assert.equal(state.sendClicks, 0, "recovery must not create a duplicate user turn");
 });
