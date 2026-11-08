@@ -8,7 +8,7 @@ const THREAD_ID = "6ae99a2e-aaaa-bbbb-cccc-ddddeeeeffff";
 function fakeProjectBrowser({ instructions, initialPrompt }) {
   const state = {
     url: "https://chatgpt.com/", settingsOpen: false, menuOpen: false,
-    settingsPersisted: "", composerValue: "", sent: false,
+    settingsPersisted: "", draftInstructions: "", composerValue: "", sent: false,
     newProjectClicks: 0, projectSettingsClicks: 0, memoryMutations: 0,
     sendClicks: 0, newTabs: 0, projectNavigations: 0,
   };
@@ -51,14 +51,20 @@ function fakeProjectBrowser({ instructions, initialPrompt }) {
         return '[data-neoy-project-instructions="1"]';
       if (source.includes("Object.getOwnPropertyDescriptor") &&
           source.includes("dispatchEvent")) {
-        if (state.settingsOpen) state.settingsPersisted = instructions;
+        if (state.settingsOpen) state.draftInstructions = instructions;
         else state.composerValue = initialPrompt;
         return true;
       }
       if (source.includes("return (b?.textContent||'unavailable')")) return "default";
-      if (source.includes("Close dialog") && source.includes("fire(b)")) {
+      if (source.includes("const save=buttons.find") &&
+          source.includes("const close=buttons.find")) {
+        if (state.draftInstructions !== state.settingsPersisted) {
+          state.settingsPersisted = state.draftInstructions;
+          state.settingsOpen = false;
+          return "saved";
+        }
         state.settingsOpen = false;
-        return true;
+        return "closed";
       }
       if (source.includes("!document.querySelector('[role=\"dialog\"]')"))
         return !state.settingsOpen;

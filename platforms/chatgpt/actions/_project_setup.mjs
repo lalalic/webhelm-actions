@@ -161,15 +161,30 @@ export async function run({ helpers: h, config: c = {} }) {
       { timeout: 8, stableSamples: 1, phase: "Project settings dialog", sleep },
     );
   };
-  const closeSettings = async () => {
-    const closed = await h.js(
-      `(() => {${fire}const d=document.querySelector('[role="dialog"]');if(!d)return true;const b=[...d.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='Close dialog');if(!b)return false;fire(b);return true;})()`,
+  const closeSettings = async ({ saveChanges = false } = {}) => {
+    // React surfaces explicit Save/Cancel after editing Instructions; it
+    // changes the former aria-label Close button into text-only "Close dialog".
+    // Save MUST be clicked before reading persisted settings.
+    const action = await h.js(
+      `(() => {${fire}const d=document.querySelector('[role="dialog"]');if(!d)return 'already-closed';
+        const buttons=[...d.querySelectorAll('button')];
+        const save=buttons.find(x=>(x.textContent||'').trim()==='Save');
+        if(save&&${saveChanges ? 'true' : 'false'}){
+          if(save.disabled)return 'save-disabled';fire(save);return 'saved';
+        }
+        if(save)return 'dirty';
+        const close=buttons.find(x=>x.getAttribute('aria-label')==='Close dialog'||(x.textContent||'').trim()==='Close dialog');
+        if(!close)return 'missing-close';fire(close);return 'closed';
+      })()`,
     );
-    if (!closed) throw new Error("ChatGPT Project settings close button missing");
+    if (!['saved', 'closed', 'already-closed'].includes(action)) {
+      throw new Error("ChatGPT Project settings could not be saved/closed: " + action);
+    }
     await waitUntilStable(
       () => h.js(`(() => !document.querySelector('[role="dialog"]'))()`),
-      Boolean, { timeout: 8, stableSamples: 1, phase: "Project settings close", sleep },
+      Boolean, { timeout: 10, stableSamples: 1, phase: "Project settings save/close", sleep },
     );
+    return action;
   };
   await openSettings();
   const field = await waitUntilStable(
@@ -186,7 +201,7 @@ export async function run({ helpers: h, config: c = {} }) {
   const memory = await h.js(
     `(() => {const d=document.querySelector('[role="dialog"]');if(!d)return 'unavailable';const b=[...d.querySelectorAll('button')].find(x=>x.hasAttribute('aria-haspopup')&&/default|project-only/i.test(x.textContent||''));return (b?.textContent||'unavailable').replace(/\\s+/g,' ').trim().toLowerCase();})()`,
   );
-  await closeSettings();
+  await closeSettings({ saveChanges: true });
   // A successful DOM fill is NOT confirmation of persistence. Verify the
   // instructions really survived closing/reopening before creating a thread.
   await openSettings();
