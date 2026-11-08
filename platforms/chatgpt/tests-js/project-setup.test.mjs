@@ -1,0 +1,93 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { run } from "../actions/_project_setup.mjs";
+
+const PROJECT_ID = "g-p-6af0d638bb04819190be1b77ae7e648e";
+const THREAD_ID = "6ae99a2e-aaaa-bbbb-cccc-ddddeeeeffff";
+
+function fakeProjectBrowser({ instructions, initialPrompt }) {
+  const state = {
+    url: "https://chatgpt.com/", settingsOpen: false, menuOpen: false,
+    settingsPersisted: "", composerValue: "", sent: false,
+    newProjectClicks: 0, projectSettingsClicks: 0, memoryMutations: 0,
+    sendClicks: 0, newTabs: 0, projectNavigations: 0,
+  };
+  const helper = {
+    async new_tab(url) { state.newTabs++; state.url = url; },
+    async goto_url(url) { state.url = url; state.projectNavigations++; },
+    async wait_for_load() {},
+    async page_info() { return { url: state.url }; },
+    async fill_input() { throw Error("reusing a Project must not request project-name input"); },
+    async cdp(method, value) {
+      if (method === "Input.dispatchMouseEvent" && value.type === "mouseReleased") {
+        state.sendClicks++;
+        state.url = `https://chatgpt.com/g/${PROJECT_ID}/c/${THREAD_ID}`;
+        state.sent = true;
+      }
+    },
+    async js(source) {
+      if (source.includes("const rows=document.querySelectorAll")) return "rows";
+      if (source.includes("const row=[...document.querySelectorAll") &&
+          source.includes("data-app-action-sidebar-project-row"))
+        return { projectId: PROJECT_ID, label: "orchestrator" };
+      if (source.includes("const d=document.querySelector('[role=\"dialog\"]')") &&
+          source.includes("/project settings/i.test") && source.includes("return !!d"))
+        return state.settingsOpen;
+      if (source.includes("const b=[...document.querySelectorAll('button')]") &&
+          source.includes("Project actions") && source.includes("fire(b)")) {
+        state.menuOpen = !state.menuOpen;
+        state.projectSettingsClicks++;
+        return true;
+      }
+      if (source.includes("some(x=>/project settings/i.test")) return state.menuOpen;
+      if (source.includes("const e=[...document.querySelectorAll('[role=\"menuitem\"]") &&
+          source.includes("fire(e)")) {
+        state.menuOpen = false; state.settingsOpen = true; return true;
+      }
+      if (source.includes("e.setAttribute('data-neoy-project-instructions'"))
+        return '[data-neoy-project-instructions="1"]';
+      if (source.includes("Object.getOwnPropertyDescriptor") &&
+          source.includes("dispatchEvent")) {
+        if (state.settingsOpen) state.settingsPersisted = instructions;
+        else state.composerValue = initialPrompt;
+        return true;
+      }
+      if (source.includes("return (b?.textContent||'unavailable')")) return "default";
+      if (source.includes("Close dialog") && source.includes("fire(b)")) {
+        state.settingsOpen = false;
+        return true;
+      }
+      if (source.includes("!document.querySelector('[role=\"dialog\"]')"))
+        return !state.settingsOpen;
+      if (source.includes("querySelector('textarea[name=\"project-instructions\"]')"))
+        return state.settingsPersisted;
+      if (source.includes("const ss=")) return "#prompt-textarea";
+      if (source.includes("const t=(e?.innerText")) return state.composerValue === initialPrompt;
+      if (source.includes("const r=b.getBoundingClientRect()")) return { x: 100, y: 100 };
+      if (source.includes("data-message-author-role=\"user\"")) return state.sent;
+      throw Error("unexpected mocked browser JS: " + source.slice(0, 180));
+    },
+  };
+  return { helper, state };
+}
+
+test("project-setup reuses existing orchestrator Project, preserves memory, verifies saved instructions and durable thread", async () => {
+  const instructions = "Follow the Neo Mobile project bootstrap contract.";
+  const initialPrompt = "Initialize Neo Mobile main orchestrator thread. Reply READY.";
+  const { helper, state } = fakeProjectBrowser({ instructions, initialPrompt });
+  const result = await run({ helpers: helper, config: {
+    project_name: "orchestrator", instructions, initial_prompt: initialPrompt,
+  } });
+  assert.equal(result.project_reused, true);
+  assert.equal(result.project_id, PROJECT_ID);
+  assert.equal(result.thread_id, THREAD_ID);
+  assert.equal(result.status, "completed");
+  assert.equal(result.thread_submission_verified, true);
+  assert.equal(result.memory, "default");
+  assert.equal(state.newTabs, 0, "auto-session should reuse its owned tab");
+  assert.equal(state.newProjectClicks, 0);
+  assert.equal(state.memoryMutations, 0);
+  assert.equal(state.projectSettingsClicks, 2, "menu opens once per settings visit");
+  assert.equal(state.settingsPersisted, instructions);
+  assert.equal(state.sendClicks, 1, "no duplicate initial user turn");
+});

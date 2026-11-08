@@ -74,3 +74,17 @@ Invalid values or types such as `{"mode": true}`, and the legacy boolean
 `"sync"`.
 MCP callers that invoke the platform action through the Browser Workspace
 runner use the same config field and validation rules.
+
+
+### ChatGPT project-setup (existing Projects)
+
+`project-setup` **reuses** a Project whose sidebar name matches `project_name`
+instead of creating a duplicate. It updates Project Instructions, reopens
+settings to verify they persisted, and preserves existing memory policy
+(Default or Project-only). It then sends one initializing user turn and verifies
+the resulting durable Project thread URL and user turn before returning a
+`project_reused`, `project_id`, `thread_id` receipt. Project settings menu
+triggers are clicked once (never inside polling loops), and browser readiness
+timeouts are in seconds. A returned thread ID verifies submission, not the
+assistant's final answer. Chat Gateway persists this receipt and avoids
+re-running project-setup while its bound head remains valid.
