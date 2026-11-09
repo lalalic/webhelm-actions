@@ -1,0 +1,21 @@
+platform: claude
+display_name: Claude
+status: verified
+last_verified: "2026-11-09"
+actions:
+  new-thread: actions/_new_thread.mjs
+  new-turn: actions/_new_turn.mjs
+verification:
+  status: verified
+  last_verified: "2026-11-09"
+  evidence: >-
+    Worknode browser E2E: new-thread created chat fb89a322-7214-4f42-9cf9-d8253b6a7d7d
+    and returned CLAUDE-ACTION-NEWTHREAD-20261109; new-turn on the same thread
+    returned CLAUDE-ACTION-NEWTURN-20261109; read-only resume verified
+    that saved response without a new submission.
+capabilities:
+  - persistent-thread
+  - url-prompt-prefill
+  - submit-verification
+  - assistant-completion
+  - read-only-resume
