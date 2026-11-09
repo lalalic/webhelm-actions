@@ -237,3 +237,27 @@ test("new-turn shared submission recognizes the accepted You said user turn even
   assert.equal(sent, 1);
   assert.equal(receipt.verified_by, "user-turn");
 });
+
+test("prefilled submission verifies persisted turn after SPA fails to show receipt, without re-sending", async () => {
+  const { prefilledSubmit, SEND_ENABLED_JS } = await import("../runtime/lifecycle-common.mjs");
+  const prompt = "Unique persisted owner message example";
+  let clicks = 0, reloads = 0, lastUrl;
+  const helpers = {
+    page_info: async () => ({url: "https://chatgpt.com/g/g-p-test/c/thread-test?prompt=abc"}),
+    goto_url: async url => { reloads++; lastUrl=url; },
+    wait_for_load: async () => {},
+    js: async code => {
+      if (code === SEND_ENABLED_JS) return true;
+      if (code.includes("const selectors=['button[aria-label=")) return 'button[aria-label="Send"]';
+      if (code.includes('const roles=')) return [];
+      if (code.includes('h4[data-conversation-role=user]')) return reloads > 0;
+      return null;
+    },
+    click: async () => { clicks++; },
+  };
+  const receipt = await prefilledSubmit(helpers, prompt, {postSubmitTimeout:0.3});
+  assert.equal(clicks,1,"Never click Send again to recover a receipt");
+  assert.equal(reloads,1);
+  assert.equal(lastUrl,"https://chatgpt.com/g/g-p-test/c/thread-test");
+  assert.equal(receipt.verified_by,"persisted-user-turn");
+});

@@ -31,7 +31,9 @@ export function visibleDeliveryError(js) {
     `(() => { const as=[...document.querySelectorAll('[role="alert"],[role="status"],[data-sonner-toast],[data-testid*="toast"],[class*="toast"],[class*="error-banner"]')]; for(const e of as){if(!e.getClientRects().length)continue; const t=(e.innerText||'').toLowerCase(); if(t.includes('this conversation is too long to continue')||t.includes('conversation is too long to continue'))return 'conversation_too_long'; if(t.includes('could not load this chatgpt conversation'))return 'thread_load_failed';} if((document.body?.innerText||'').toLowerCase().includes('could not load this chatgpt conversation'))return 'thread_load_failed'; return null; })()`,
   );
 }
-export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
+export async function prefilledSubmit(helpers, prompt, {
+  send = true, postSubmitTimeout = 30,
+} = {}) {
   const { js } = helpers;
   const sendEnabled = async () => !!(await js(SEND_ENABLED_JS));
   try {
@@ -66,6 +68,11 @@ export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
   } else if (!(await js(CLICK_SEND_JS))) {
     throw new Error("URL-prefilled Send became unavailable before click");
   }
+  // The SPA may accept a turn without immediately displaying it. A failed
+  // transient receipt must never trigger another Send click.
+  const persistedProbe =
+    '(() => [...document.querySelectorAll("h4[data-conversation-role=user]")].some(e => (e.parentElement?.innerText || e.parentElement?.textContent || "").includes(' +
+    JSON.stringify(prompt.slice(0, Math.min(prompt.length, 120))) + '))()';
   let verified;
   try {
     verified = await waitUntilStable(
@@ -82,7 +89,7 @@ export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
       },
       (s) => s.accepted || s.send_disabled,
       {
-        timeout: 30,
+        timeout: postSubmitTimeout,
         interval: 0.2,
         stableSamples: 2,
         phase: "post-click Send disabled",
@@ -90,9 +97,35 @@ export async function prefilledSubmit(helpers, prompt, { send = true } = {}) {
       },
     );
   } catch {
-    const e = new Error("Send did not become disabled after click");
+    // Verify the saved message in the durable thread by reloading without
+    // a prompt query, which cannot submit again.
+    if (typeof helpers.page_info === "function" &&
+        typeof helpers.goto_url === "function" &&
+        typeof helpers.wait_for_load === "function") {
+      try {
+        const current = new URL((await helpers.page_info()).url);
+        if (current.hostname === "chatgpt.com" &&
+            current.pathname.split("/c/").length === 2 &&
+            current.pathname.split("/c/")[1].length > 0) {
+          current.search = "";
+          current.hash = "";
+          await helpers.goto_url(current.toString());
+          await helpers.wait_for_load();
+          await waitUntilStable(
+            () => js(persistedProbe),
+            Boolean, { timeout: 20, interval: 0.3, stableSamples: 2,
+              phase: "persisted user turn in durable thread",
+              sleep: helpers.sleep },
+          );
+          return { verified_by: "persisted-user-turn", turn: { id: null } };
+        }
+      } catch {
+        // Still ambiguous: preserve error and never resend.
+      }
+    }
+    const e = new Error("Turn acceptance unverified; delivery may already exist");
     e.name = "SubmissionVerificationError";
-    e.diagnostic = { reason: "post_submit_send_state_unverified" };
+    e.diagnostic = { reason: "post_submit_unverified_no_resend" };
     throw e;
   }
   return {
