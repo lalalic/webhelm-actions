@@ -41,7 +41,22 @@ export default async function assets({ helpers: h, config = {} }) {
     })()`));
     scroll = {...scroll,forced,moved:!!forced?.moved};
   }
-  if (scroll?.attempted) await h.sleep?.(400);
+  if (scroll?.attempted) {
+    await h.sleep?.(350);
+    // Many user assets live below the ASSET heading; scroll to the bottom as
+    // requested, giving IntersectionObserver-backed lazy cards a chance to load.
+    const bottom = parseDOM(await h.js(`(() => {
+      const html=document.documentElement;
+      html.style.overflowY='scroll';
+      html.style.scrollBehavior='auto';
+      const max=Math.max(0,html.scrollHeight-html.clientHeight);
+      html.scrollTop=max;
+      return {top:html.scrollTop,max,at_bottom:Math.abs(html.scrollTop-max)<8,
+        visible_cards:document.querySelectorAll('[data-card-id],[data-agentic-task-id]').length};
+    })()`));
+    scroll={...scroll,bottom};
+    await h.sleep?.(450);
+  }
   const value = parseDOM(await h.js(`(() => {
     const nodes = [...document.querySelectorAll('article[data-agentic-task-id], [data-card-id]')];
     const seen = new Set();
