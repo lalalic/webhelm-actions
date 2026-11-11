@@ -87,6 +87,33 @@ test('reference action refuses to claim successful upload without thumbnail',asy
     assert.equal(v.reason,'browser_did_not_accept_reference');
   } finally {fs.rmSync(temp,{recursive:true,force:true})}
 });
+test('multiview upload atomically selects four local photos and validates all thumbnails',async()=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'hyper3d-four-'));
+  const photos=Array.from({length:4},(_,i)=>{
+    const f=path.join(temp,`view-${i}.jpg`);
+    fs.writeFileSync(f,Buffer.alloc(512,i));
+    return f;
+  });
+  const calls=[];
+  let read=0;
+  try {
+    const v=await references({config:{files:photos},helpers:{
+      page_info:async()=>({url:'https://hyper3d.ai/workspace/rodin'}),
+      cdp:async(method,params)=>{
+        calls.push({method,params});
+        if(method==='DOM.getDocument')return {root:{nodeId:1}};
+        if(method==='DOM.querySelector')return {nodeId:22};
+        return {};
+      },
+      js:async()=>{read++;return read===1?'hidden':read===2?'visible':read===3?0:{count:4,fileInputCount:4,hasManualGenerate:true};},
+    }});
+    assert.equal(v.status,'reference_ready');assert.equal(v.count,4);
+    const sent=calls.find(c=>c.method==='DOM.setFileInputFiles');
+    assert.deepEqual(sent.params.files,photos);
+    assert.equal(v.direction_labels_verified,false);
+  } finally {fs.rmSync(temp,{recursive:true,force:true})}
+});
+
 test('editing inspector is non-billable and reports rendered controls', async()=>{
   const {default:editing}=await import('../actions/_editing.mjs');
   let n=0;

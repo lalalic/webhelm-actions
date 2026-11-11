@@ -17,7 +17,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import configure from './_configure.mjs';
-import references from './_references.mjs';
 import assets from './_assets.mjs';
 import {requireWorkspace, parseDOM} from './_workspace.mjs';
 
@@ -234,13 +233,16 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
   await requireWorkspace(h);
   const policy=goalPolicy(config);
   const {photos,key}=validatePhotos(config);
+  const prompt=typeof config.prompt==='string'?config.prompt.trim():'';
+  if(prompt.length>600)throw TypeError('prompt must be 600 characters or fewer');
+  const inputKey=crypto.createHash('sha256').update(JSON.stringify({key,prompt})).digest('hex');
   return await lock(dir,async()=>{
     let s=loadState(dir);
-    if(s && (s.photo_key!==key||s.policy?.effort!==policy.effort||s.policy?.agentic!==policy.agentic))
+    if(s && (s.photo_key!==inputKey||s.policy?.effort!==policy.effort||s.policy?.agentic!==policy.agentic))
       throw Error('Immutable candidate configuration changed; use a fresh candidate_id');
     if(s && ['submission_uncertain','submitted','model_ready','published','rig_submission_uncertain','rig_submitted'].includes(s.stage))
       return {...publicState(s),next:'status_or_publish_only_no_duplicate_generate'};
-    s=advance(dir,s||{id,policy,photo_key:key,created_at:new Date().toISOString()},'preparing');
+    s=advance(dir,s||{id,policy,photo_key:inputKey,created_at:new Date().toISOString()},'preparing');
     // EXIF orientation must be baked into pixels before uploading. Keep the
     // original owner photos untouched and stage the prepared copies privately.
     const readyPhotos=[];
@@ -256,7 +258,18 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
     const mode=parseDOM(await h.js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='Image to 3D');if(!b)return false;b.click();return true})()`));
     if(mode!==true) return publicState(advance(dir,s,'blocked',{blocked_reason:'image_to_3d_mode_unavailable'}));
     const configured=await configure({helpers:h,config:{effort:policy.effort,agentic:policy.agentic}});
-    if(config.photos.length>1) return {...publicState(advance(dir,s,'blocked',{blocked_reason:'multi_reference_upload_requires_site_verification'})),configured:configured.after};
+    if(prompt) {
+      if(typeof h.fill_input!=='function')
+        return publicState(advance(dir,s,'blocked',{blocked_reason:'prompt_input_unavailable'}));
+      await h.fill_input('textarea[placeholder^="Describe the item"]',prompt);
+      const actual=parseDOM(await h.js(`document.querySelector('textarea[placeholder^="Describe the item"]')?.value||''`));
+      if(actual!==prompt)
+        return publicState(advance(dir,s,'blocked',{blocked_reason:'prompt_not_confirmed'}));
+    }
+    // Load website upload helper with an mtime key. Persistent WebHelm daemon
+    // otherwise retains the old single-file helper after Actions are updated.
+    const refURL=new URL('./_references.mjs',import.meta.url);
+    const {default: references}=await import(refURL.href+'?mtime='+fs.statSync(refURL).mtimeMs);
     const result=await references({helpers:h,config:{files:readyPhotos}});
     if(result.status!=='reference_ready') {
       s=advance(dir,s,'blocked',{blocked_reason:result.reason||'photo_upload_not_confirmed'});
@@ -268,26 +281,33 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
     const max=config.max_credits;
     if(typeof max!=='number'||!Number.isFinite(max)||max<=0||max>5) throw TypeError('Set max_credits number between 0 and 5 for paid generation');
     const pricing=parseDOM(await h.js(`(()=>{
-      const b=document.querySelector('button[aria-label="GENERATE"]');
-      const near=b?.parentElement?.parentElement?.innerText||'';
+      // The hidden aria-label=GENERATE button belongs to Agentic Mode and is
+      // disabled when Agentic is off. Manual mode has a separate visible DIV.
+      const b=document.querySelector('.newrodin_generateBtn__cTxM7');
+      const near=b?.innerText||'';
       const x=(near.match(/(\\d+(?:\\.\\d+)?)\\s*Credits?/i)||[]);
-      return {enabled:!!b&&!b.disabled,credit_label:x[0]||null,credits:x[1]?Number(x[1]):null,
+      return {enabled:!!b&&!!b.getClientRects().length&&!b.className.includes('disabled'),
+        credit_label:x[0]||null,credits:x[1]?Number(x[1]):null,
         thumb:document.querySelectorAll('.rodin-homepage-upload-strip img[alt="thumbnail"]').length};
     })()`));
     if(!pricing?.enabled||pricing?.thumb!==photos.length||!Number.isFinite(pricing.credits)||pricing.credits>max)
       return {...publicState(advance(dir,s,'blocked',{blocked_reason:'generation_price_or_reference_preflight_failed'})),preflight:pricing};
     s=advance(dir,s,'submission_uncertain',{expected_credits:pricing.credits,submitted_at:new Date().toISOString()});
-    try { await h.click('button[aria-label="GENERATE"]'); }
+    try { await h.click('.newrodin_generateBtn__cTxM7'); }
     catch(e) {return {...publicState(s),next:'Submission may have occurred; inspect website task. Never click Generate again for this candidate.'};}
     const receipt=parseDOM(await h.js(`(()=>{
-      const card=document.querySelector('[data-agentic-task-id],[data-card-id]');
-      const body=document.body.innerText;
-      const status=[...document.querySelectorAll('[role=status]')].map(e=>e.textContent?.trim()).filter(Boolean);
-      return {task_id:card?.getAttribute('data-agentic-task-id')||card?.getAttribute('data-card-id')||null,
-        status:status.slice(0,3),queued:/Task queued|Generating|Thinking|Processing/i.test(body)};
+      const button=document.querySelector('.newrodin_generateBtn__cTxM7');
+      const actionState=button?.innerText.split('\n')[0]?.trim()||'';
+      const status=[...document.querySelectorAll('[role=status]')]
+        .map(e=>e.textContent?.trim()).filter(Boolean);
+      // The homepage shows unrelated Featured model cards. NEVER assign the
+      // first card's UUID to this submission. Recover the real task ID from
+      // the authenticated Mine page when it becomes visible.
+      return {task_id:null,action_state:actionState,status:status.slice(0,3),
+        queued:['PREPARING','GENERATING'].includes(actionState)};
     })()`));
-    if(receipt?.task_id||receipt?.queued) {
-      s=advance(dir,s,'submitted',{site_task_id:receipt.task_id,submission_receipt:JSON.stringify(receipt).slice(0,240)});
+    if(receipt?.queued) {
+      s=advance(dir,s,'submitted',{site_task_id:null,submission_receipt:JSON.stringify(receipt).slice(0,240)});
       return {...publicState(s),next:'Await actual model result, then export USDZ and call the SAME high-level action with operation:publish.'};
     }
     return {...publicState(s),next:'No reliable receipt. Inspect real site before any retry; never auto-resubmit.'};

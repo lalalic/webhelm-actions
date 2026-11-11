@@ -64,17 +64,17 @@ test('verified generation clicks once and duplicate run cannot spend again',asyn
     {ok:true}, // select mode in dialog
     {effort:'High',agentic:'false',generationCostText:'0.5 Credits'}, // verify
     0, // previous uploaded thumbnail count
-    {count:1,ready:true,fileInputCount:1}, // upload accepted
+    {count:1,hasManualGenerate:true,fileInputCount:1}, // upload accepted
     {enabled:true,thumb:1,credits:0.5}, // price preflight
-    {queued:true,task_id:'provider-test-id'}, // provider DOM receipt
+    {queued:true,task_id:null,action_state:'GENERATING'}, // manual UI state; no Featured ID
   ];
   try {
     const h={page_info:async()=>({url}),js:async()=>responses[jsCall++],
       upload_file:async()=>({uploaded:true}),
-      click:async selector=>{if(selector.includes('GENERATE'))clicked++}};
+      click:async selector=>{if(selector.includes('newrodin_generateBtn'))clicked++}};
     const first=await toyaliveModel({config:config(t.image),helpers:h},{stateRoot:t.root});
     assert.equal(first.status,'submitted');
-    assert.equal(first.site_task_id,'provider-test-id');
+    assert.equal(first.site_task_id,null);
     assert.equal(clicked,1);
     const second=await toyaliveModel({config:config(t.image),helpers:h},{stateRoot:t.root});
     assert.equal(second.status,'submitted');
@@ -86,11 +86,11 @@ test('session-interrupted Generate never gets an automatic second click',async()
   const t=sandbox();let clicked=0,jsCall=0;
   const responses=[true,{effort:'High',agentic:'false'},'already_off',{ok:true},
     {effort:'High',agentic:'false',generationCostText:'0.5 Credits'},0,
-    {count:1,ready:true,fileInputCount:1},{enabled:true,thumb:1,credits:0.5}];
+    {count:1,hasManualGenerate:true,fileInputCount:1},{enabled:true,thumb:1,credits:0.5}];
   try {
     const h={page_info:async()=>({url}),js:async()=>responses[jsCall++],
       upload_file:async()=>({uploaded:true}),click:async selector=>{
-        if(selector.includes('GENERATE')) {clicked++;throw Error('browser deadline');}
+        if(selector.includes('newrodin_generateBtn')) {clicked++;throw Error('browser deadline');}
       }};
     const first=await toyaliveModel({config:config(t.image),helpers:h},{stateRoot:t.root});
     assert.equal(first.status,'submission_uncertain');
