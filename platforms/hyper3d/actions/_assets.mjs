@@ -5,7 +5,7 @@ export default async function assets({ helpers: h, config = {} }) {
   const navigate = config.navigate !== false;
   if (navigate) {
     await h.goto_url(`${ROOT}/tab/mine`);
-    await h.wait_for_load?.();
+    try { await h.wait_for_load?.(4000); } catch { /* SPA route may remain interactive while resources hang */ }
   }
   const page = await requireWorkspace(h);
   // Mine thumbnails are commonly virtualized / loaded after scrolling.
@@ -27,6 +27,21 @@ export default async function assets({ helpers: h, config = {} }) {
         before:first,after:second};
     })()`));
   }
+  if (scroll?.attempted && !scroll.moved) {
+    // The site occasionally leaves <html> at overflow-y:overlay, which
+    // prevents scrollTop and scrollIntoView from moving Chrome. Restrict this
+    // fallback to the owned browser tab; it changes no server-side settings.
+    const forced = parseDOM(await h.js(`(() => {
+      const html=document.documentElement;
+      const first=html.scrollTop;
+      html.style.overflowY='scroll';
+      html.style.scrollBehavior='auto';
+      html.scrollTop=Math.max(900,(document.querySelector('.rodin-assets-padding')?.offsetTop||800)+180);
+      return {applied:true,moved:html.scrollTop>first+40,top:html.scrollTop};
+    })()`));
+    scroll = {...scroll,forced,moved:!!forced?.moved};
+  }
+  if (scroll?.attempted) await h.sleep?.(400);
   const value = parseDOM(await h.js(`(() => {
     const nodes = [...document.querySelectorAll('article[data-agentic-task-id], [data-card-id]')];
     const seen = new Set();

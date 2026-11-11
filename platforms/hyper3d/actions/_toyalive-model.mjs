@@ -119,6 +119,7 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
   const op=config.operation||'run';
   if (!['run','status','publish','rig'].includes(op)) throw TypeError('operation must be run, status, publish or rig');
   const id=config.candidate_id;
+  const projectRoot=deps.projectRoot||ROOT;
   const dir=safeState(id, deps.stateRoot||STATE_ROOT);
   const command=deps.runCommand||runCommand;
   // A status read is intentionally non-mutating and safe during concurrent processing.
@@ -144,7 +145,7 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
       if(fs.statSync(file).size>MAX_FILE) {
         const target=path.join(dir,'model-mobile.usdz');
         command('uv',['run','--no-project','--python','3.11','--with','usd-core','--with','numpy',
-          'python',path.join(ROOT,'scripts','rodin_compact_usdz.py'),file,target],ROOT,300000);
+          'python',path.join(projectRoot,'scripts','rodin_compact_usdz.py'),file,target],projectRoot,300000);
         file=target;
       }
       if(fs.statSync(file).size>MAX_FILE) throw Error('Compacted USDZ still exceeds 60 MiB');
@@ -153,7 +154,7 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
       const title=String(config.title||`ToyAlive 3D · ${id}`);
       const detail=String(config.detail||'Generated and verified for ToyAlive owner review');
       if(title.length>120||detail.length>200) throw TypeError('Title or detail too long');
-      command('python3',[path.join(ROOT,'scripts','publish_model_library.py'),
+      command('python3',[path.join(projectRoot,'scripts','publish_model_library.py'),
         '--id',id,'--file',file,'--title',title,'--detail',detail]);
       const s=advance(dir,prior||{id,policy:{
         source:'external_usdz',effort:config.source_effort||'Unknown',
@@ -164,7 +165,7 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
     });
   }
   if(op==='rig') {
-    const script=path.join(ROOT,'scripts','rodin_rigging_eval.py');
+    const script=path.join(projectRoot,'scripts','rodin_rigging_eval.py');
     if(!fs.existsSync(script)) return {status:'blocked',candidate_id:id,reason:'rigging_local_runner_not_installed'};
     const policy=goalPolicy(config);
     const prior=loadState(dir);
@@ -175,14 +176,14 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
       // An authoritative provider ledger may exist even when a previous
       // high-level invocation timed out. Adopt confirmed task ownership and
       // completed artifacts; never issue a second paid POST in recovery.
-      const privateLedger=path.join(ROOT,'.build','rodin-rigging-eval',id,'submission.json');
+      const privateLedger=path.join(projectRoot,'.build','rodin-rigging-eval',id,'submission.json');
       if ((!s || s.stage==='rig_submission_uncertain') && fs.existsSync(privateLedger)) {
         const provider=JSON.parse(fs.readFileSync(privateLedger,'utf8'));
         const digest=s?.source_digest || (config.source_usdz
           ?crypto.createHash('sha256').update(fs.readFileSync(safeUSDZ(config.source_usdz))).digest('hex'):null);
         if (digest && provider.source_sha256===digest && ['submitted','finished'].includes(provider.status)) {
           if (provider.status==='finished') {
-            const file=path.join(ROOT,'.build','rodin-rigging-eval',id,'model.usdz');
+            const file=path.join(projectRoot,'.build','rodin-rigging-eval',id,'model.usdz');
             if(fs.existsSync(file)) {
               const recovered=advance(dir,s||{id,policy},'model_ready',{source_usdz:file,source_digest:digest});
               return {...publicState(recovered),source_usdz:file,recovered_from:'provider_ledger'};
@@ -246,7 +247,7 @@ export default async function toyaliveModel({config={},helpers:h}, deps={}) {
     for (const [i,photo] of photos.entries()) {
       const target=path.join(dir,'prepared-'+i+'.jpg');
       if(!fs.existsSync(target)) {
-        command('python3',[path.join(ROOT,'scripts','rodin_photo_prepare.py'),
+        command('python3',[path.join(projectRoot,'scripts','rodin_photo_prepare.py'),
           '--source',photo.path,'--output',target]);
       }
       readyPhotos.push(target);

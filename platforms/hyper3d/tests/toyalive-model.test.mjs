@@ -120,3 +120,28 @@ test('public publication requires explicit owner approval',async()=>{
     await assert.rejects(toyaliveModel({config:{candidate_id:'some-model',operation:'publish',source_usdz:t.image},helpers:{}},{stateRoot:t.root}),/public_model_approved/);
   } finally {t.cleanup()}
 });
+
+test('recovers an already finished rig from authoritative private provider ledger with no second API call',async()=>{
+  const home=fs.mkdtempSync(path.join(os.homedir(),'.hyper3d-recovery-test-'));
+  try {
+    const id='rig-recovered-abc';
+    const source=path.join(home,'source.usdz');
+    fs.writeFileSync(source,Buffer.concat([Buffer.from([0x50,0x4b,0x03,0x04]),Buffer.alloc(250,0x20)]));
+    const digest=(await import('node:crypto')).createHash('sha256').update(fs.readFileSync(source)).digest('hex');
+    fs.mkdirSync(path.join(home,'scripts'),{recursive:true});
+    fs.writeFileSync(path.join(home,'scripts','rodin_rigging_eval.py'),'# mocked runner: recovery must never execute it\n');
+    const rigDir=path.join(home,'.build','rodin-rigging-eval',id);
+    fs.mkdirSync(rigDir,{recursive:true});
+    fs.writeFileSync(path.join(rigDir,'submission.json'),JSON.stringify({status:'finished',source_sha256:digest}));
+    fs.writeFileSync(path.join(rigDir,'model.usdz'),Buffer.concat([Buffer.from([0x50,0x4b,0x03,0x04]),Buffer.alloc(250,0x30)]));
+    const stateDir=path.join(home,'states',id);
+    fs.mkdirSync(stateDir,{recursive:true});
+    fs.writeFileSync(path.join(stateDir,'state.json'),JSON.stringify({id,stage:'rig_submission_uncertain',source_digest:digest,policy:goalPolicy({})}));
+    const v=await toyaliveModel({config:{operation:'rig',candidate_id:id,source_usdz:source},helpers:{}},
+      {stateRoot:path.join(home,'states'),projectRoot:home,
+        runCommand:()=>{throw Error('Unexpected charge or process invocation')}});
+    assert.equal(v.status,'model_ready');
+    assert.equal(v.recovered_from,'provider_ledger');
+    assert.equal(v.source_usdz,path.join(rigDir,'model.usdz'));
+  }finally{fs.rmSync(home,{recursive:true,force:true})}
+});
