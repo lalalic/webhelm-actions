@@ -10,3 +10,4 @@ actions:
   configure: actions/_configure.mjs
   references: actions/_references.mjs
   editing: actions/_editing.mjs
+  toyalive-model: actions/_toyalive-model.mjs

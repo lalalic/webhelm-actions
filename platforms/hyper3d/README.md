@@ -30,3 +30,39 @@ Run with `webhelm platform run hyper3d ACTION --session-id SESSION --config /pat
 5. Mobile: keep raw source and rigged/edited variants privately; compact exported USDZ to <=60MiB and validate `usdchecker`, 4-view render, iPhone File Service catalog SHA-256 and owner feedback. The phone model library fetches/chooses a candidate while away from home.
 
 Never create an automatically recurring generation loop, never resubmit after an ambiguous button click, and never claim a model was generated or installed before checking real outputs.
+
+## High-level ToyAlive Action (recommended)
+
+**Caller interface:** `webhelm platform run hyper3d toyalive-model --session-id SESSION --config /tmp/toyalive.json`. Low-level `configure`, `references`, `assets`, `editing` remain internal building blocks; users should not need to compose them.
+
+A high-level `run` request supplies the owner objective and one or more reference images (each with an optional direction):
+
+```json
+{
+  "operation": "run",
+  "candidate_id": "wan-web-high-001",
+  "photos": [{"path": "/absolute/local/front-upright.jpg", "direction": "Front"}],
+  "effort": "High", "agentic": false,
+  "face": "eyes-mouth", "body": "rigged", "motion": "idle",
+  "confirm_generation": true, "max_credits": 0.5
+}
+```
+
+- Website **run**: validate an immutable input image fingerprint, privately EXIF-normalize photos, set Gen-2.5 effort, attempt real browser upload, ensure the thumbnail and visible price match the selected photo count, and only then click `GENERATE` once. A durable `submission_uncertain` checkpoint is written *before* the potentially billable click. It will not retry ambiguous billable submissions. A new candidate ID is needed for different reference photos or effort. On current site sessions, image upload sometimes remains unconfirmed; `run` stops safely at `blocked`, without charging any credits. It currently supports one verified photo per website generation. Multiple images are accepted in the input plan but remain blocked until atomic multi-image website upload is demonstrated.
+- **status**: inspect the saved checkpoint without a browser, or include `check_site:true` for Mine task visibility. Scrolling is attempted before deciding whether any gallery cards are visible. An unloaded gallery is never treated as evidence of a failed task.
+- **rig**: optionally run the ToyAlive-owned Rodin API rigging stage against a selected USDZ; requires a fresh ID, explicit `confirm_rig_credits:true`, and `max_credits >= 0.5`. Subsequent invocations collect output instead of submitting again. The project-side `scripts/rodin_rigging_eval.py` owns the private API ledger and credit/cancellation recovery. Verify geometry, actual skeleton and animation, not merely HTTP success.
+- **publish**: validate a selected local USDZ, compact to ≤60 MiB if necessary, run `usdchecker`, and publish only with `public_model_approved:true` to the Neo.app read-only File Service catalog. This step is live-verified with `wan-front-upright-raw1`, including the site's HTTPS catalog read-back. It does **not** make a private USDZ private: the catalog is a public unlisted URL.
+
+```json
+{
+  "operation": "publish", "candidate_id": "wan-web-high-001",
+  "source_usdz": "/absolute/path/to/validated-model-mobile.usdz",
+  "public_model_approved": true,
+  "title": "Wan · High · version 1", "detail": "Eyes/body review candidate",
+  "source_effort": "High"
+}
+```
+
+The workflow is **resumable**, not one long browser call: WebHelm Session executions have deadlines; invoking the same high-level Action and candidate ID advances only the verified next stage. Website Download/Confirm interactions are not yet fully verified, so an existing exported USDZ is still required for publish. A plan is not equivalent to a finished model.
+
+The ToyAlive outcome gate is actual iPhone owner review of the candidate under **调整 → 查看可用模型**. A rigged torso does not prove eyes/blinking, mouth/visemes or lifelike expression; those require separate verified geometry, bones or blendshapes and RealityKit control.
