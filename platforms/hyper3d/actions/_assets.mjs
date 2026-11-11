@@ -3,15 +3,19 @@ import { ROOT, requireWorkspace, parseDOM } from './_workspace.mjs';
 /** Read the browser's currently visible My Assets cards; never call private APIs. */
 export default async function assets({ helpers: h, config = {} }) {
   const navigate = config.navigate !== false;
-  if (navigate) {
+  const current = await requireWorkspace(h);
+  // Re-navigating an already open Mine tab resets its lazy-loaded cards.
+  // Read the current page first and preserve the user's scroll position.
+  if (navigate && !current.url.startsWith(`${ROOT}/tab/mine`)) {
     await h.goto_url(`${ROOT}/tab/mine`);
-    try { await h.wait_for_load?.(4000); } catch { /* SPA route may remain interactive while resources hang */ }
+    try { await h.wait_for_load?.(4000); } catch { /* SPA may remain interactive */ }
   }
   const page = await requireWorkspace(h);
-  // Mine thumbnails are commonly virtualized / loaded after scrolling.
-  // A navigation followed by DOM inspection alone is insufficient.
+  // On Worknode the four real Mine cards appear only after the owner scrolls.
+  // Preserve already-rendered results rather than resetting their SPA route.
+  const cardCount = parseDOM(await h.js('document.querySelectorAll("[data-card-id],[data-agentic-task-id]").length'));
   let scroll = null;
-  if (config.scroll !== false) {
+  if (config.scroll !== false && !(Number(cardCount) > 0)) {
     scroll = parseDOM(await h.js(`(() => {
       const a=document.querySelector('.rodin-assets-padding');
       const first={scrollTop:document.scrollingElement?.scrollTop || 0,
@@ -57,7 +61,7 @@ export default async function assets({ helpers: h, config = {} }) {
     scroll={...scroll,bottom};
     await h.sleep?.(450);
   }
-  const value = parseDOM(await h.js(`(() => {
+  const readCards = () => h.js(`(() => {
     const nodes = [...document.querySelectorAll('article[data-agentic-task-id], [data-card-id]')];
     const seen = new Set();
     const cards = [];
@@ -74,7 +78,14 @@ export default async function assets({ helpers: h, config = {} }) {
     const ended = document.body.innerText.includes('\\nEND\\n');
     return {cards:cards.slice(0,60),visible_count:cards.length,listing_ended:ended,
       page_state:state, view_result:!!document.querySelector('button[aria-label="View result"]')};
-  })()`));
+  })()`);
+  let value = parseDOM(await readCards());
+  // Wait briefly after reaching the asset section/bottom: React may render
+  // card nodes in a later frame or after an IntersectionObserver callback.
+  for (let i = 0; scroll && !value?.cards?.length && i < 5; i++) {
+    await h.sleep?.(500);
+    value = parseDOM(await readCards());
+  }
   if (!value || !Array.isArray(value.cards)) throw Error('Website asset list unrecognized');
   return { status: value.cards.length ? 'visible' : 'empty_or_unloaded',
     verified_by: 'rendered_site_dom', url:page.url,scroll,...value,

@@ -22,8 +22,39 @@ test('assets never invents prior work if UI has no visible cards',async()=>{
     js:async()=>({cards:[],visible_count:0,listing_ended:true,page_state:'complete',view_result:false}),
   }});
   assert.equal(v.status,'empty_or_unloaded');assert.equal(v.cards.length,0);
-  assert.deepEqual(steps,[['navigate','https://hyper3d.ai/workspace/rodin/tab/mine']]);
+  assert.deepEqual(steps,[]); // already in Mine: do not reset lazy-loaded assets
 });
+test('preserves already-scrolled Mine cards on Worknode without navigation or scrolling',async()=>{
+  let calls=0;
+  const cards=[
+    {id:'ba42a572-84b1-467e-9dd4-86c63fd707cb',step:'ModelGenerate',state:null,busy:false,type:null},
+    {id:'7d7810fa-1aa0-4963-b35b-6fa027452402',step:'ModelGenerate',state:null,busy:false,type:null},
+    {id:'006637b7-1b7b-4e39-aef0-fb9da27346bd',step:'TextureGenerate',state:null,busy:false,type:null},
+    {id:'1eeea24a-deb6-4308-b811-62152e2c310e',step:'ModelGenerate',state:null,busy:false,type:null},
+  ];
+  const result=await assets({helpers:{
+    page_info:async()=>({url:'https://hyper3d.ai/workspace/rodin/tab/mine'}),
+    goto_url:async()=>{throw new Error('must not reload Mine');},
+    js:async()=>{calls++; return calls===1 ? 4 : {cards,visible_count:4,listing_ended:true,page_state:'complete',view_result:true};},
+  }});
+  assert.equal(result.status,'visible');
+  assert.equal(result.cards.length,4);
+  assert.equal(result.scroll,null);
+});
+
+test('navigates to Mine only if currently in another Rodin page',async()=>{
+  let url='https://hyper3d.ai/workspace/rodin';
+  let count=0, jumps=0;
+  const result=await assets({config:{scroll:false},helpers:{
+    page_info:async()=>({url}),
+    goto_url:async u=>{url=u;jumps++;},
+    wait_for_load:async()=>{},
+    js:async()=>++count===1 ? 0 : {cards:[],visible_count:0,listing_ended:true,page_state:'complete',view_result:false},
+  }});
+  assert.equal(jumps,1);
+  assert.equal(result.url,'https://hyper3d.ai/workspace/rodin/tab/mine');
+});
+
 test('configure only changes visible settings; does not submit credits',async()=>{
   let count=0;const clicks=[];
   const v=await configure({config:{effort:'High',agentic:false},helpers:{
