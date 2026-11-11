@@ -1,0 +1,12 @@
+platform: hyper3d
+display_name: Hyper3D Rodin
+status: unverified
+last_verified: null
+url_patterns:
+  - https://hyper3d.ai/workspace/rodin*
+actions:
+  inspect: actions/_inspect.mjs
+  assets: actions/_assets.mjs
+  configure: actions/_configure.mjs
+  references: actions/_references.mjs
+  editing: actions/_editing.mjs
