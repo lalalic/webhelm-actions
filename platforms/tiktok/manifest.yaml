@@ -5,6 +5,7 @@ actions:
   post: actions/_post.mjs
   inspect: actions/_inspect.mjs
   monitor: actions/_monitor.mjs
+  heartbeat: actions/_heartbeat.mjs
 verification:
   status: migrated_unverified
   last_verified: null
@@ -12,6 +13,11 @@ verification:
     Browser Workspace live verification pending.
 url_patterns:
 - https://www.tiktok.com/creator*
+- https://www.tiktok.com/tiktokstudio*
+keep_alive:
+  action: heartbeat
+  interval_minutes: 30
+  url: https://www.tiktok.com/tiktokstudio
 authentication:
   required: true
   notes: Use the caller's authenticated browser context; never store credentials.
