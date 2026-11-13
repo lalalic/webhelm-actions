@@ -261,3 +261,30 @@ test("prefilled submission verifies persisted turn after SPA fails to show recei
   assert.equal(lastUrl,"https://chatgpt.com/g/g-p-test/c/thread-test");
   assert.equal(receipt.verified_by,"persisted-user-turn");
 });
+
+
+test("prefilled Send rechecks a React-replaced button without duplicate clicks", async () => {
+  const {prefilledSubmit, SEND_ENABLED_JS} = await import("../runtime/lifecycle-common.mjs");
+  let probes = 0, clicks = 0;
+  let enabled = true;
+  const helpers = {
+    sleep: async () => {},
+    js: async src => {
+      if (src === SEND_ENABLED_JS) return enabled;
+      if (src.includes("const selectors=['button[aria-label=")) {
+        return ++probes < 3 ? null : 'button[aria-label="Send"]';
+      }
+      if (src.includes('const roles=')) return clicks ? ['You said: ' + 'smoke'] : [];
+      return null;
+    },
+    click: async selector => {
+      assert.equal(selector, 'button[aria-label="Send"]');
+      clicks++;
+      enabled = false;
+    },
+  };
+  const receipt = await prefilledSubmit(helpers, 'smoke');
+  assert.equal(clicks, 1);
+  assert.equal(receipt.verified_by, 'user-turn');
+  assert.ok(probes >= 3);
+});

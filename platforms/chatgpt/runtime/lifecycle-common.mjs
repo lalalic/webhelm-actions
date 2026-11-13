@@ -60,10 +60,23 @@ export async function prefilledSubmit(helpers, prompt, {
   // composer can ignore synthetic element.click(), even while showing Send.
   // Older/non-browser callers retain the legacy JS-click fallback.
   if (typeof helpers.click === "function") {
-    const selector = await js(
-      `(() => {const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]'];for(const s of selectors){const b=document.querySelector(s);if(b&&!b.disabled&&b.getClientRects().length)return s;}return null;})()`,
-    );
-    if (!selector) throw new Error("URL-prefilled Send control disappeared");
+    const selectorJS =
+      `(() => {const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]'];for(const s of selectors){const b=document.querySelector(s);if(b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true'&&b.getClientRects().length)return s;}return null;})()`;
+    // React can replace or disable the Send control immediately after the
+    // initial readiness check. A fresh pre-click readiness probe is safe:
+    // this path has not clicked Send yet and must never retry after clicking.
+    let selector;
+    try {
+      const ready = await waitUntilStable(
+        async () => ({selector: await js(selectorJS)}),
+        state => Boolean(state.selector),
+        {timeout: 10, interval: 0.25, stableSamples: 2,
+          phase: "prefilled Send recheck", sleep: helpers.sleep},
+      );
+      selector = ready.selector;
+    } catch {
+      throw new Error("URL-prefilled Send control was not ready before click");
+    }
     await helpers.click(selector);
   } else if (!(await js(CLICK_SEND_JS))) {
     throw new Error("URL-prefilled Send became unavailable before click");
