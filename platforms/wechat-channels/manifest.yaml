@@ -4,6 +4,7 @@ last_verified: null
 actions:
   post: actions/_post.mjs
   manage: actions/_manage.mjs
+  heartbeat: actions/_heartbeat.mjs
 verification:
   status: migrated_unverified
   last_verified: null
@@ -12,6 +13,10 @@ verification:
     because list rows do not expose those fields in visible text.
 url_patterns:
 - https://channels.weixin.qq.com/*
+keep_alive:
+  action: heartbeat
+  interval_minutes: 30
+  url: https://channels.weixin.qq.com/platform/post/list
 authentication:
   required: true
   notes: Use the caller's authenticated browser context; never store credentials.
