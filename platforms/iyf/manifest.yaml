@@ -8,6 +8,8 @@ actions:
   search: actions/_search.mjs
   episodes: actions/_episodes.mjs
   open: actions/_open.mjs
+  resolve: actions/_resolve.mjs
+  home: actions/_home.mjs
 verification:
   status: migrated_unverified
   evidence: find verified with Spider-Man title. Chrome page verified. AirPlay action not implemented.
