@@ -31,6 +31,11 @@ export function visibleDeliveryError(js) {
     `(() => { const as=[...document.querySelectorAll('[role="alert"],[role="status"],[data-sonner-toast],[data-testid*="toast"],[class*="toast"],[class*="error-banner"]')]; for(const e of as){if(!e.getClientRects().length)continue; const t=(e.innerText||'').toLowerCase(); if(t.includes('this conversation is too long to continue')||t.includes('conversation is too long to continue'))return 'conversation_too_long'; if(t.includes('could not load this chatgpt conversation'))return 'thread_load_failed';} if((document.body?.innerText||'').toLowerCase().includes('could not load this chatgpt conversation'))return 'thread_load_failed'; return null; })()`,
   );
 }
+// IMPORTANT: this is the normal URL ?prompt= submission path. Treat page
+// location plus Send/Stop button state as the readiness/acceptance signals.
+// Do not require an editable composer or wait for ?prompt= to disappear before
+// clicking Send. Click only once, then verify; never retry after an ambiguous
+// acceptance. The structured @App composer path is opt-in, not a replacement.
 export async function prefilledSubmit(helpers, prompt, {
   send = true, postSubmitTimeout = 30,
 } = {}) {
