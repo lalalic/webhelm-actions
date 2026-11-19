@@ -5,6 +5,7 @@ actions:
   post: "actions/_post.mjs"
   manage: "actions/_manage.mjs"
   heartbeat: actions/_heartbeat.mjs
+  research: actions/_research.mjs
 verification:
   status: migrated_unverified
   last_verified: null
