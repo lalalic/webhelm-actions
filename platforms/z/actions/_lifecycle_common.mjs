@@ -4,6 +4,19 @@ export const COMPOSER = 'textarea[placeholder="Send a Message"]';
 export const SEND_BUTTON = "#send-message-button";
 export const STREAM_OBSERVER =
   `(()=>{if(window.__webhelmZStream?.version===1)return;const observer={version:1,entries:[]};window.__webhelmZStream=observer;const nativeFetch=window.fetch;window.fetch=function(...args){const url=String(args[0]?.url||args[0]||'');const request=nativeFetch.apply(this,args);if(!/\\/api(?:\\/v2)?\\/chat\\/(?:completions|continue)(?:\\?|$)/.test(url))return request;return request.then(response=>{const item={state:'reading',status:response.status,body:'',error:''};observer.entries.push(item);if(observer.entries.length>8)observer.entries.shift();response.clone().text().then(body=>{if(body.length>1500000){item.state='oversized';item.error='Z.ai stream exceeds 1.5MB'}else{item.state='received';item.body=body}}).catch(err=>{item.state='read_error';item.error=String(err)});return response})}})()`;
+// Z.ai sometimes displays a new-interface introduction above the composer.
+// Never click through an unexpected modal or retry an ambiguous submission.
+// Fail before typing so the user can dismiss the dialog in their own browser.
+export const INTRO_BLOCKER_STATE =
+  `(()=>[...document.querySelectorAll('div.fixed.inset-0')].some(e=>
+    e.className?.toString().includes('z-100')&&
+    e.innerText?.includes('A fresh new interface')&&
+    !!e.querySelector('button[aria-label="Close"]')))()`;
+export async function assertNoBlockingIntro(h) {
+  if (await h.js(INTRO_BLOCKER_STATE)) {
+    throw new Error('Z.ai introductory dialog blocks message submission; close "A fresh new interface" in Z.ai before retrying');
+  }
+}
 export const STREAM_STATE =
   `(()=>{const entries=window.__webhelmZStream?.entries||[];return{count:entries.length,latest:entries.length?{state:entries.at(-1).state,status:entries.at(-1).status,error:entries.at(-1).error}:null}})()`;
 export const STREAM_BODY =
@@ -178,6 +191,7 @@ export async function run(cfg, mode, h) {
     throw new TypeError("mode must be new-thread or new-turn");
   }
   if (new URL((await h.page_info()).url).hostname === "chat.z.ai") {
+    await assertNoBlockingIntro(h);
     const s = await pageState(h);
     if (s.text.trim() || s.attachmentCount) {
       throw new Error("Unsent draft or attachment; leave it untouched");
@@ -191,6 +205,7 @@ export async function run(cfg, mode, h) {
   await h.goto_url(targetUrl(expected));
   await h.wait_for_load();
   await h.wait_for_element(COMPOSER, { timeout: 15, visible: true });
+  await assertNoBlockingIntro(h);
   if (typeof h.cdp === "function") await h.js(STREAM_OBSERVER);
   const beforeState = await pageState(h);
   if (beforeState.text.trim() || beforeState.attachmentCount) {
