@@ -2,6 +2,8 @@ import {
   prefilledSubmit,
   requireNoDeliveryError,
   targetUrl,
+  deliveryMessage,
+  withPromptFile,
 } from "./_action-common.mjs";
 export async function run({ helpers, config = {} }) {
   const mode = config.mode === undefined ? "async" : config.mode;
@@ -41,7 +43,7 @@ export async function run({ helpers, config = {} }) {
   const { goto_url, wait_for_load, page_info } = helpers;
   // The thread ID alone is sufficient. ChatGPT may canonicalize this
   // ordinary URL to its Project-scoped /g/<id>[-slug]/c/<thread> URL.
-  const url = targetUrl({ thread_id, prompt: message });
+  const url = targetUrl({ thread_id, prompt: deliveryMessage(message) });
   await goto_url(url);
   await wait_for_load();
   await requireNoDeliveryError(helpers);
@@ -60,7 +62,7 @@ export async function run({ helpers, config = {} }) {
     throw new Error("ChatGPT thread redirected outside requested Project");
   }
   await requireNoDeliveryError(helpers);
-  const receipt = await prefilledSubmit(helpers, message);
+  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt));
   const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",
