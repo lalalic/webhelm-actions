@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
 import {run as newThread} from '../actions/_new_thread.mjs';
 import {run as newTurn} from '../actions/_new_turn.mjs';
-import {withPromptFile,deliveryMessage,PROMPT_FILE_MESSAGE,PROMPT_FILE_THRESHOLD} from '../actions/_action-common.mjs';
+import {withPromptFile,deliveryMessage,PROMPT_FILE_MESSAGE,PROMPT_FILE_THRESHOLD} from '../actions/_prompt-file.mjs';
 import {SEND_ENABLED_JS,CLICK_SEND_JS} from '../runtime/lifecycle-common.mjs';
 
 function browserFixture(){

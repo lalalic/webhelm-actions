@@ -1,10 +1,9 @@
+import { deliveryMessage, withPromptFile } from "./_prompt-file.mjs";
 import {
   prefilledSubmit,
   requireNoDeliveryError,
   sleep,
   targetUrl,
-  deliveryMessage,
-  withPromptFile,
 } from "./_action-common.mjs";
 export async function run({ helpers, config = {} }) {
   const { js, goto_url, wait_for_load, page_info } = helpers;

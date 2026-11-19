@@ -1,9 +1,8 @@
+import { deliveryMessage, withPromptFile } from "./_prompt-file.mjs";
 import {
   prefilledSubmit,
   requireNoDeliveryError,
   targetUrl,
-  deliveryMessage,
-  withPromptFile,
 } from "./_action-common.mjs";
 export async function run({ helpers, config = {} }) {
   const mode = config.mode === undefined ? "async" : config.mode;
