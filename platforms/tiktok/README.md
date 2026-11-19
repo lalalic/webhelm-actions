@@ -24,7 +24,7 @@ The monitors currently sample at most 30 posts and cannot prove completeness for
 
 ## Login heartbeat
 
-The optional `heartbeat` Action visits the Creator Studio home using a temporary
+The optional `heartbeat` Action visits the Creator Studio upload page using a temporary
 WebHelm Session, checks site-specific authenticated UI, and returns
 `alive` / `login_required` / `unknown`. It performs no writes, credentials
 refresh, or automated sign-in. Users opt in from the WebHelm Extension.

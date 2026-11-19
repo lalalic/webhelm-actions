@@ -17,7 +17,7 @@ url_patterns:
 keep_alive:
   action: heartbeat
   interval_minutes: 30
-  url: https://www.tiktok.com/tiktokstudio
+  url: https://www.tiktok.com/tiktokstudio/upload
 authentication:
   required: true
   notes: Use the caller's authenticated browser context; never store credentials.
