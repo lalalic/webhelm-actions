@@ -65,6 +65,15 @@ attempt succeeds or fails. Asynchronous `new-turn` has the same threshold and
 file-upload behavior in the Runtime's durable queue. Callers should send the
 original full prompt, not create another input file or truncate it.
 
+`new-thread` and `new-turn` also support optional `app` (a structured
+ChatGPT App mention, not a plain text `@Name`) and `model_choice` (a visible
+model picker option such as `GPT-5.6 Sol`). These do not change defaults for
+other callers. On `new-turn`, app/model selection requires `mode: sync` and
+a caller-owned WebHelm Session; `mode: async` rejects these options instead of
+silently dropping required tool access. New-thread only retries a Send click
+when the browser explicitly shows an unchanged unsent composer, no user turn
+and no active generation; an ambiguous or accepted submission is never retried.
+
 `new-thread` and `new-turn` accept optional `enforcement_context` in the
 Action config. WebHelm wraps it in `<top-instructions>`, independently of the
 caller's protocol. For short tasks it precedes the raw `message`; for long

@@ -1,6 +1,7 @@
 import { deliveryMessage, withPromptFile } from "./_prompt-file.mjs";
 import {
-  prefilledSubmit,
+  prefilledSubmitWithApp,
+  selectChatGPTModel,
   requireNoDeliveryError,
   targetUrl,
 } from "./_action-common.mjs";
@@ -17,10 +18,13 @@ export async function run({ helpers, config = {} }) {
   const project_id = String(config.project_id || "").trim() || null,
     thread_id = String(config.thread_id || "").trim(),
     message = String(config.message ?? ""),
-    enforcement_context = config.enforcement_context ?? "";
+    enforcement_context = config.enforcement_context ?? "",
+    app = String(config.app || "").trim(),
+    model_choice = String(config.model_choice || "").trim();
   if (!thread_id) throw new Error("thread_id is required");
   if (!message.trim()) throw new Error("message is required");
   if (mode === "async") {
+    if(app||model_choice)throw Error('App mentions and model_choice require mode=sync (caller-owned Session)');
     let enqueue;
     if (typeof helpers.enqueueChatGPTTurn === "function") {
       enqueue = (request) => helpers.enqueueChatGPTTurn(request);
@@ -63,7 +67,8 @@ export async function run({ helpers, config = {} }) {
     throw new Error("ChatGPT thread redirected outside requested Project");
   }
   await requireNoDeliveryError(helpers);
-  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt), enforcement_context);
+  if(model_choice)await selectChatGPTModel(helpers,model_choice);
+  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmitWithApp(helpers, prompt, app), enforcement_context);
   const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",

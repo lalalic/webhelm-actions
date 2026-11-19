@@ -99,3 +99,59 @@ export async function attachAppMention(
   }
   throw new Error(`ChatGPT app '${app}' mention did not attach`);
 }
+
+
+/** A structured App mention is required for the App's tool permissions.
+ * Plain `@App` text is not an equivalent authorization; the composer must
+ * contain an `app-mention-name` element before submitting the prompt.
+ */
+export async function prefilledSubmitWithApp(helpers,prompt,app=''){
+  if(!app)return prefilledSubmit(helpers,prompt);
+  const selector=await helpers.js(COMPOSER_JS);
+  if(!selector)throw Error('ChatGPT app mention requires a visible composer');
+  // ChatGPT's rich composer collapses block-boundary newlines in innerText.
+  // Verify the exact content, ignoring only whitespace normalization.
+  const equivalent=(a,b)=>String(a).replace(/\s+/g,'')===String(b).replace(/\s+/g,'');
+  let before='';
+  try{
+    await waitUntilStable(async()=>{
+      before=await composerText(helpers,selector);return {text:before}
+    },state=>equivalent(state.text,prompt),{
+      timeout:25,interval:0.3,stableSamples:2,phase:'app mention prefill',sleep:helpers.sleep
+    });
+  }catch(error){throw Error('Prefilled text not ready before app mention: '+JSON.stringify({observedLength:before.length,expectedLength:prompt.length}))}
+
+  await attachAppMention(helpers,selector,helpers.target_id||null,app,{timeout:15});
+  for(let i=0;i<prompt.length;i+=200){
+    const chunk=prompt.slice(i,i+200);
+    const ok=await helpers.js(`(() => {const e=document.querySelector(${JSON.stringify(selector)});if(!e)return false;e.focus();const s=window.getSelection(),r=document.createRange();r.selectNodeContents(e);r.collapse(false);s.removeAllRanges();s.addRange(r);const success=document.execCommand('insertText',false,${JSON.stringify(chunk)});e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:${JSON.stringify(chunk)}}));return success;})()`);
+    if(!ok)throw Error('ChatGPT app mention composer rejected prompt text');
+  }
+  const mention=await helpers.js(`(() => {const e=document.querySelector(${JSON.stringify(selector)});return !!e&&[...e.querySelectorAll('[app-mention-name]')].some(n=>(n.getAttribute('app-mention-name')||'').toLowerCase()===${JSON.stringify(app.toLowerCase())});})()`);
+  if(!mention)throw Error('ChatGPT composer lost the structured app mention');
+  if(!equivalent(await composerText(helpers,selector),prompt))throw Error('ChatGPT composer lost the prompt after app mention');
+  return prefilledSubmit(helpers,prompt);
+}
+
+
+/** Optional per-request ChatGPT model selection. Caller owns its choice. */
+export async function selectChatGPTModel(helpers,model='') {
+  if(!model)return;
+  const {js,click}=helpers;
+  // In concurrent native Codex title + main requests the SPA can remain
+  // unhydrated after navigation; wait for actual picker readiness.
+  await waitUntilStable(async()=>({ready:await js(`(() => {
+    const b=document.querySelector('button[aria-label="Select ChatGPT model"]');
+    return !!b&&!b.disabled&&b.getClientRects().length>0;
+  })()`)}),state=>Boolean(state.ready),
+    {timeout:45,interval:.3,stableSamples:2,phase:'model picker readiness',sleep:helpers.sleep});
+  await click('button[aria-label="Select ChatGPT model"]');
+  const menu=await waitUntilStable(async()=>({choices:await js(`(() => [...document.querySelectorAll('[role="menuitemradio"]')].map(e=>(e.innerText||'').trim()))()`)||[]}),
+    state=>state.choices.includes(model),{timeout:10,interval:.2,stableSamples:2,phase:'model selection menu',sleep:helpers.sleep});
+  const tagged=await js(`(() => {const e=[...document.querySelectorAll('[role="menuitemradio"]')].find(x=>(x.innerText||'').trim()===${JSON.stringify(model)});if(!e)return false;e.setAttribute('data-webhelm-model-choice','yes');return true})()`);
+  if(!tagged)throw Error('requested ChatGPT model not found: '+model);
+  await click('[data-webhelm-model-choice="yes"]');
+  await waitUntilStable(async()=>({caption:await js(`document.querySelector('button[aria-label="Select ChatGPT model"]')?.innerText`)}),
+    state=>model==='GPT-5.6 Sol'?String(state.caption).includes('5.6'):model==='GPT-6'?(!String(state.caption).includes('5.6')&&String(state.caption).includes('Thinking effort')):String(state.caption).includes(model),
+    {timeout:10,interval:.2,stableSamples:2,phase:'model selection verified',sleep:helpers.sleep});
+}
