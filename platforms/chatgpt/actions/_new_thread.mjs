@@ -9,6 +9,7 @@ export async function run({ helpers, config = {} }) {
   const { js, goto_url, wait_for_load, page_info } = helpers;
   const project_id = String(config.project_id || "").trim() || null,
     message = String(config.message ?? ""),
+    enforcement_context = config.enforcement_context ?? "",
     source_thread_id = String(config.source_thread_id || "").trim() || null,
     temporary = !!config.temporary;
   if (
@@ -23,7 +24,7 @@ export async function run({ helpers, config = {} }) {
   if (temporary && project_id) {
     throw new Error("temporary=true cannot be combined with project_id");
   }
-  const url = targetUrl({ project_id, temporary, prompt: deliveryMessage(message) });
+  const url = targetUrl({ project_id, temporary, prompt: deliveryMessage(message,enforcement_context) });
   const mode = async () =>
     await js(
       `(() => {const b=[...document.querySelectorAll('button')],f=n=>b.find(x=>(x.textContent||'').trim()===n&&x.hasAttribute('aria-pressed')),c=f('Chat'),w=f('Work');if(!c||!w)return 'unknown';if(c.getAttribute('aria-pressed')==='true'&&w.getAttribute('aria-pressed')==='false')return 'chat';if(w.getAttribute('aria-pressed')==='true'&&c.getAttribute('aria-pressed')==='false')return 'work';return 'unknown';})()`,
@@ -59,7 +60,7 @@ export async function run({ helpers, config = {} }) {
     )
   ) throw new Error("ChatGPT Temporary Chat mode was not activated");
   await requireNoDeliveryError(helpers);
-  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt));
+  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt), enforcement_context);
   if (temporary) {
     return {
       status: "submitted",

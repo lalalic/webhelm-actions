@@ -16,7 +16,8 @@ export async function run({ helpers, config = {} }) {
   }
   const project_id = String(config.project_id || "").trim() || null,
     thread_id = String(config.thread_id || "").trim(),
-    message = String(config.message ?? "");
+    message = String(config.message ?? ""),
+    enforcement_context = config.enforcement_context ?? "";
   if (!thread_id) throw new Error("thread_id is required");
   if (!message.trim()) throw new Error("message is required");
   if (mode === "async") {
@@ -35,6 +36,7 @@ export async function run({ helpers, config = {} }) {
       thread_id,
       project_id,
       message,
+      ...(enforcement_context ? {enforcement_context} : {}),
       idempotency_key: config.idempotency_key || config.idempotencyKey,
       mergeable: config.mergeable === undefined ? false : config.mergeable,
     });
@@ -42,7 +44,7 @@ export async function run({ helpers, config = {} }) {
   const { goto_url, wait_for_load, page_info } = helpers;
   // The thread ID alone is sufficient. ChatGPT may canonicalize this
   // ordinary URL to its Project-scoped /g/<id>[-slug]/c/<thread> URL.
-  const url = targetUrl({ thread_id, prompt: deliveryMessage(message) });
+  const url = targetUrl({ thread_id, prompt: deliveryMessage(message,enforcement_context) });
   await goto_url(url);
   await wait_for_load();
   await requireNoDeliveryError(helpers);
@@ -61,7 +63,7 @@ export async function run({ helpers, config = {} }) {
     throw new Error("ChatGPT thread redirected outside requested Project");
   }
   await requireNoDeliveryError(helpers);
-  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt));
+  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmit(helpers, prompt), enforcement_context);
   const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",

@@ -9,23 +9,31 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Large prompts travel as a prompt.md attachment, not as long ?prompt= URLs.
 export const PROMPT_FILE_THRESHOLD = 2000;
 export const PROMPT_FILE_MESSAGE = "Read prompt.md and execute the task in that file.";
-// When a prompt is attached as prompt.md, retain its leading reporting
-// contract in the visible composer. Otherwise ChatGPT may never read the
-// attachment, leaving the caller waiting for chat_report indefinitely.
-export function inlineTopInstructions(message) {
-  const open='<top-instructions>', close='</top-instructions>';
-  if (!message.startsWith(open)) return null;
-  const end=message.indexOf(close,open.length);
-  if (end<=open.length||end>1800) return null;
-  const header=message.slice(0,end+close.length);
-  const next=message.slice(end+close.length,end+close.length+250);
-  const responseId=next.match(/Neo model request: resp_[0-9a-f]{40}/)?.[0]||'';
-  const preview=header+(responseId?'\n\n'+responseId:'')+'\n\n'+PROMPT_FILE_MESSAGE;
-  return preview.length<=PROMPT_FILE_THRESHOLD?preview:null;
+// Optional caller-supplied per-request constraints. No service-specific tags,
+// response IDs, or protocol parsing belong in WebHelm.
+export function enforcementContext(value = '') {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string' || !value.trim() || value.length > 1500 ||
+      value.includes('</top-instructions>')) {
+    throw new TypeError('enforcement_context must be a non-empty string of at most 1500 characters without closing tag');
+  }
+  return `<top-instructions>\n${value}\n</top-instructions>`;
 }
-export function deliveryMessage(message) {
-  if (message.length<=PROMPT_FILE_THRESHOLD) return message;
-  return inlineTopInstructions(message)??PROMPT_FILE_MESSAGE;
+export function fullDeliveryMessage(message, context = '') {
+  const header = enforcementContext(context);
+  return (header ? header+'\n\n' : '') + message;
+}
+export function requiresPromptFile(message, context = '') {
+  return fullDeliveryMessage(message, context).length > PROMPT_FILE_THRESHOLD;
+}
+export function deliveryMessage(message, context = '') {
+  const full = fullDeliveryMessage(message, context);
+  if (full.length <= PROMPT_FILE_THRESHOLD) return full;
+  const header = enforcementContext(context);
+  if (!header) return PROMPT_FILE_MESSAGE;
+  const short = header+'\n\n'+PROMPT_FILE_MESSAGE;
+  if (short.length > PROMPT_FILE_THRESHOLD) throw new TypeError('enforcement_context exceeds the short message limit');
+  return short;
 }
 
 const FILE_INPUT_JS =
@@ -60,9 +68,9 @@ export async function uploadPromptFile(helpers, filePath) {
 // Cleanup happens after the submit callback completes or fails. For long
 // messages, the composer receives only the bounded protocol header + file
 // instruction. The complete original text never goes through the URL.
-export async function withPromptFile(helpers, message, submit) {
-  const delivery = deliveryMessage(message);
-  if (delivery === message) return await submit(delivery);
+export async function withPromptFile(helpers, message, submit, context = '') {
+  const delivery = deliveryMessage(message,context);
+  if (!requiresPromptFile(message,context)) return await submit(delivery);
   const directory = mkdtempSync(join(tmpdir(), "webhelm-prompt-"));
   const file = join(directory, "prompt.md");
   try {

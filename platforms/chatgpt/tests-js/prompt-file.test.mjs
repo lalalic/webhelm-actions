@@ -96,32 +96,37 @@ test('new-turn sync uses prompt.md for >2k chars; async remains queue-owned',asy
 });
 
 
-test('top-instructions remain visible for large Project-free model prompt; full original stays only in prompt.md',async()=>{
-  const f=browserFixture();
-  const id='resp_'+'1'.repeat(40);
-  const instructions='<top-instructions>\nHeartbeat via chat_report then report text and send completed:true separately.\n</top-instructions>';
-  const original=instructions+'\n\nNeo model request: '+id+'\n\n[USER]\n'+ 'text'.repeat(1300)+'\n[/USER]';
-  const expected=instructions+'\n\nNeo model request: '+id+'\n\n'+PROMPT_FILE_MESSAGE;
-  assert.equal(deliveryMessage(original),expected);
+test('optional enforcement_context stays in visible composer while long task is uploaded verbatim',async()=>{
+  const f=browserFixture(),id='resp_'+'1'.repeat(40);
+  const context='Heartbeat via chat_report; send completed:true.\nNeo model request: '+id;
+  const original='[USER]\n'+ 'text'.repeat(1300)+'\n[/USER]';
+  const expected='<top-instructions>\n'+context+'\n</top-instructions>\n\n'+PROMPT_FILE_MESSAGE;
+  assert.equal(deliveryMessage(original,context),expected);
   assert.ok(expected.length<PROMPT_FILE_THRESHOLD);
-  const result=await newThread({helpers:f.helpers,config:{message:original,mode:'chat',temporary:false}});
+  const result=await newThread({helpers:f.helpers,config:{message:original,enforcement_context:context,mode:'chat',temporary:false}});
   assert.equal(result.status,'submitted');
   assert.equal(f.calls.uploads[0].text,original);
   assert.equal(new URL(f.calls.navigation[0]).searchParams.get('prompt'),expected);
-  assert.ok(!f.calls.navigation[0].includes('text'.repeat(50)));
   const f2=browserFixture();
-  const follow=await newTurn({helpers:f2.helpers,config:{mode:'sync',thread_id:'same-thread',message:original}});
+  const follow=await newTurn({helpers:f2.helpers,config:{mode:'sync',thread_id:'same-thread',message:original,enforcement_context:context}});
   assert.equal(follow.status,'submitted');
   assert.equal(f2.calls.uploads[0].text,original);
   assert.equal(new URL(f2.calls.navigation.at(-1)).searchParams.get('prompt'),expected);
+  const q={};
+  const asyncResult=await newTurn({helpers:{enqueueChatGPTTurn:async payload=>(Object.assign(q,payload),{queue_id:'qid',status:'queued'})},
+    config:{mode:'async',thread_id:'same-thread',message:original,enforcement_context:context,idempotency_key:'one'}});
+  assert.equal(asyncResult.queue_id,'qid');
+  assert.equal(q.message,original);
+  assert.equal(q.enforcement_context,context);
 });
 
-test('top-instructions cannot overflow short composer and generic prompts keep old fallback',async()=>{
-  const id='resp_'+'2'.repeat(40);
-  const oversized='<top-instructions>\n'+'A'.repeat(1850)+'\n</top-instructions>\n\nNeo model request: '+id+'\n\n'+'X'.repeat(4000);
-  assert.equal(deliveryMessage(oversized),PROMPT_FILE_MESSAGE);
-  const generic='hello'+ 'X'.repeat(3000);
-  assert.equal(deliveryMessage(generic),PROMPT_FILE_MESSAGE);
-  const unclosed='<top-instructions>not closed'+'x'.repeat(4000);
-  assert.equal(deliveryMessage(unclosed),PROMPT_FILE_MESSAGE);
+test('optional enforcement_context works for short messages and rejects unsafe oversized context',async()=>{
+  const ctx='Always acknowledge completion';
+  assert.equal(deliveryMessage('hello',ctx),'<top-instructions>\n'+ctx+'\n</top-instructions>\n\nhello');
+  assert.equal(deliveryMessage('hello'),'hello');
+  assert.equal(deliveryMessage('x'.repeat(2001)),PROMPT_FILE_MESSAGE);
+  assert.equal(deliveryMessage('x'.repeat(1600),ctx).includes('prompt.md'),false);
+  assert.equal(deliveryMessage('x'.repeat(1950),ctx).includes('prompt.md'),true);
+  assert.throws(()=>deliveryMessage('hello','A'.repeat(1501)),/enforcement_context/);
+  assert.throws(()=>deliveryMessage('hello','</top-instructions>'),/enforcement_context/);
 });

@@ -65,11 +65,13 @@ attempt succeeds or fails. Asynchronous `new-turn` has the same threshold and
 file-upload behavior in the Runtime's durable queue. Callers should send the
 original full prompt, not create another input file or truncate it.
 
-If a large message begins with `<top-instructions>...</top-instructions>`,
-WebHelm retains that bounded block and its `Neo model request: resp_...` ID in
-the visible composer before asking ChatGPT to read `prompt.md`. This keeps the
-model reporting contract visible while the exact full input stays attached.
-Other long messages retain the original short composer text.
+`new-thread` and `new-turn` accept optional `enforcement_context` in the
+Action config. WebHelm wraps it in `<top-instructions>`, independently of the
+caller's protocol. For short tasks it precedes the raw `message`; for long
+tasks only the `message` is attached as `prompt.md` and the context remains
+in the visible composer before the file-reading instruction. The option is
+fully optional and the old behavior remains unchanged without it. Async
+`new-turn` persists the field in the durable queue.
 
 These actions are control-transfer primitives. The generic Browser Workspace runner owns session start/stop and cleanup. Product code should pass stable Project/Thread IDs rather than persist ChatGPT URLs or DOM identities.
 
