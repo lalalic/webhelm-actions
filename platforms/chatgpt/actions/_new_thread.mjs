@@ -8,7 +8,7 @@ import {
 export async function run({ helpers, config = {} }) {
   const { js, goto_url, wait_for_load, page_info } = helpers;
   const project_id = String(config.project_id || "").trim() || null,
-    message = String(config.message || "").trim(),
+    message = String(config.message ?? ""),
     source_thread_id = String(config.source_thread_id || "").trim() || null,
     temporary = !!config.temporary;
   if (
@@ -19,7 +19,7 @@ export async function run({ helpers, config = {} }) {
   if ((config.mode ?? "chat") !== "chat") {
     throw new Error("new-thread supports chat mode only");
   }
-  if (!message) throw new Error("message is required");
+  if (!message.trim()) throw new Error("message is required");
   if (temporary && project_id) {
     throw new Error("temporary=true cannot be combined with project_id");
   }

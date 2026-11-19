@@ -16,9 +16,9 @@ export async function run({ helpers, config = {} }) {
   }
   const project_id = String(config.project_id || "").trim() || null,
     thread_id = String(config.thread_id || "").trim(),
-    message = String(config.message || "").trim();
+    message = String(config.message ?? "");
   if (!thread_id) throw new Error("thread_id is required");
-  if (!message) throw new Error("message is required");
+  if (!message.trim()) throw new Error("message is required");
   if (mode === "async") {
     let enqueue;
     if (typeof helpers.enqueueChatGPTTurn === "function") {

@@ -57,6 +57,14 @@ Browser Workspace owns the ChatGPT UI mechanics for orchestrator lifecycle hando
 - `new-turn`: given stable `project_id`, `thread_id`, and `message`, submit a continuation in the same thread and return with public `status: submitted`. Omitted `mode` defaults to `"async"`: durable-queue delivery uses a private dispatcher session and returns as soon as queued. Set `mode` to `"sync"` or pass `--mode sync` with a caller-owned `--session-id` to deliver in that session; it waits for the current assistant turn to finish, verifies submission, and returns without waiting for the new assistant answer. The only accepted values are the exact strings `"async"` and `"sync"`. Other values and types, including the legacy boolean `sync` config key, are rejected.
 - `new-thread`: given stable `project_id` and `message` (plus optional `source_thread_id` provenance), open the same Project, submit the continuation to create a fresh thread, and return the durable new `thread_id` once ChatGPT replaces any temporary local id.
 
+**Long prompts (>2,000 characters):** `new-thread` and synchronous `new-turn`
+write the complete message to a private temporary `prompt.md`, confirm its upload
+in the current Browser Session, and submit the short text `Read prompt.md and
+execute the task in that file.` The temporary file is deleted after the
+attempt succeeds or fails. Asynchronous `new-turn` has the same threshold and
+file-upload behavior in the Runtime's durable queue. Callers should send the
+original full prompt, not create another input file or truncate it.
+
 These actions are control-transfer primitives. The generic Browser Workspace runner owns session start/stop and cleanup. Product code should pass stable Project/Thread IDs rather than persist ChatGPT URLs or DOM identities.
 
 ```bash
