@@ -27,7 +27,7 @@ function browserFixture(){
       if(script.includes('could not load this chatgpt conversation'))return null;
       if(script.includes('input[name="upload-media"]'))return 'input[type="file"]';
       if(script.includes('button[aria-label^="Remove "]'))return {names:['prompt.md'],pending:false};
-      if(script.includes('const roles='))return clicked?[PROMPT_FILE_MESSAGE]:[];
+      if(script.includes('const roles='))return clicked?[new URL(calls.navigation.at(-1)).searchParams.get('prompt')]:[];
       return null;
     },
   };
@@ -93,4 +93,35 @@ test('new-turn sync uses prompt.md for >2k chars; async remains queue-owned',asy
   });
   assert.equal(asyncResult.queue_id,'q1');
   assert.equal(q.message,long,'queue receives full original text for its own file transport');
+});
+
+
+test('top-instructions remain visible for large Project-free model prompt; full original stays only in prompt.md',async()=>{
+  const f=browserFixture();
+  const id='resp_'+'1'.repeat(40);
+  const instructions='<top-instructions>\nHeartbeat via chat_report then report text and send completed:true separately.\n</top-instructions>';
+  const original=instructions+'\n\nNeo model request: '+id+'\n\n[USER]\n'+ 'text'.repeat(1300)+'\n[/USER]';
+  const expected=instructions+'\n\nNeo model request: '+id+'\n\n'+PROMPT_FILE_MESSAGE;
+  assert.equal(deliveryMessage(original),expected);
+  assert.ok(expected.length<PROMPT_FILE_THRESHOLD);
+  const result=await newThread({helpers:f.helpers,config:{message:original,mode:'chat',temporary:false}});
+  assert.equal(result.status,'submitted');
+  assert.equal(f.calls.uploads[0].text,original);
+  assert.equal(new URL(f.calls.navigation[0]).searchParams.get('prompt'),expected);
+  assert.ok(!f.calls.navigation[0].includes('text'.repeat(50)));
+  const f2=browserFixture();
+  const follow=await newTurn({helpers:f2.helpers,config:{mode:'sync',thread_id:'same-thread',message:original}});
+  assert.equal(follow.status,'submitted');
+  assert.equal(f2.calls.uploads[0].text,original);
+  assert.equal(new URL(f2.calls.navigation.at(-1)).searchParams.get('prompt'),expected);
+});
+
+test('top-instructions cannot overflow short composer and generic prompts keep old fallback',async()=>{
+  const id='resp_'+'2'.repeat(40);
+  const oversized='<top-instructions>\n'+'A'.repeat(1850)+'\n</top-instructions>\n\nNeo model request: '+id+'\n\n'+'X'.repeat(4000);
+  assert.equal(deliveryMessage(oversized),PROMPT_FILE_MESSAGE);
+  const generic='hello'+ 'X'.repeat(3000);
+  assert.equal(deliveryMessage(generic),PROMPT_FILE_MESSAGE);
+  const unclosed='<top-instructions>not closed'+'x'.repeat(4000);
+  assert.equal(deliveryMessage(unclosed),PROMPT_FILE_MESSAGE);
 });

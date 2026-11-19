@@ -9,8 +9,24 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Large prompts travel as a prompt.md attachment, not as long ?prompt= URLs.
 export const PROMPT_FILE_THRESHOLD = 2000;
 export const PROMPT_FILE_MESSAGE = "Read prompt.md and execute the task in that file.";
-export const deliveryMessage = (message) =>
-  message.length > PROMPT_FILE_THRESHOLD ? PROMPT_FILE_MESSAGE : message;
+// When a prompt is attached as prompt.md, retain its leading reporting
+// contract in the visible composer. Otherwise ChatGPT may never read the
+// attachment, leaving the caller waiting for chat_report indefinitely.
+export function inlineTopInstructions(message) {
+  const open='<top-instructions>', close='</top-instructions>';
+  if (!message.startsWith(open)) return null;
+  const end=message.indexOf(close,open.length);
+  if (end<=open.length||end>1800) return null;
+  const header=message.slice(0,end+close.length);
+  const next=message.slice(end+close.length,end+close.length+250);
+  const responseId=next.match(/Neo model request: resp_[0-9a-f]{40}/)?.[0]||'';
+  const preview=header+(responseId?'\n\n'+responseId:'')+'\n\n'+PROMPT_FILE_MESSAGE;
+  return preview.length<=PROMPT_FILE_THRESHOLD?preview:null;
+}
+export function deliveryMessage(message) {
+  if (message.length<=PROMPT_FILE_THRESHOLD) return message;
+  return inlineTopInstructions(message)??PROMPT_FILE_MESSAGE;
+}
 
 const FILE_INPUT_JS =
   `(() => ['#upload-files','#upload-media','input[name="upload-media"]','input[type="file"]'].find(s=>document.querySelector(s))||null)()`;
@@ -41,8 +57,9 @@ export async function uploadPromptFile(helpers, filePath) {
   );
 }
 
-// Cleanup happens after the submit callback completes or fails. The complete
-// original text never goes through a ChatGPT URL for messages >2000 chars.
+// Cleanup happens after the submit callback completes or fails. For long
+// messages, the composer receives only the bounded protocol header + file
+// instruction. The complete original text never goes through the URL.
 export async function withPromptFile(helpers, message, submit) {
   const delivery = deliveryMessage(message);
   if (delivery === message) return await submit(delivery);
