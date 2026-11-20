@@ -37,23 +37,25 @@ Public methods:
 - `inspect()` returns pending row summaries without message text.
 - `rows()` is an internal diagnostic view and contains prompts; do not expose
   it in daemon status endpoints.
-- `reconcile({ queue_id, evidence, accepted })` requires caller-supplied
-  read-only evidence. `accepted: true` resolves an uncertain send to `SENT`;
-  `false` returns it to `WAITING` only after evidence establishes that no send
-  took effect.
+- `reconcile({ queue_id, evidence, accepted })` remains a legacy compatibility
+  method; new sends do not create `UNCERTAIN` records.
 - `shutdown()` stops scheduling, waits for active attempts, closes owned
   private Sessions and closes SQLite. `close()` aliases `shutdown()`.
 
 The runtime requires Node.js 22.5 or newer for the built-in `node:sqlite` module. SQLite is stored at `<persistenceRoot>/chatgpt-new-turn.sqlite3` using WAL and
 FULL synchronous writes. A new instance reopens the same queue. `CHECKING`
-leases expire back to `WAITING`; expired `SENDING` leases become `UNCERTAIN`
-and are never automatically resent. Per-thread FIFO holds successors behind
-`WAITING`, `BLOCKED`, `SENDING`, or `UNCERTAIN` items. Independent thread heads
+leases expire back to `WAITING`; expired `SENDING` leases become `FAILED`
+and are never automatically resent. Old `UNCERTAIN` records migrate to `FAILED`
+during claim. Per-thread FIFO treats `FAILED` as terminal, so subsequent items
+can continue. Pending `QUEUED`, `WAITING`, `BLOCKED`, and `SENDING` items remain ordered. Independent thread heads
 may run concurrently. A sent item applies the configured interval cooldown.
 Mergeable requests combine only into the same thread's still-pending mergeable
 tail; every original idempotency key remains mapped to that queue id.
 
 The queue dispatcher is async and uses the read-only ChatGPT probe before
-submission. It enters `SENDING` before its one send attempt. Only the exact
-`send-button-disabled` receipt reaches `SENT`; a timeout, ambiguous response,
-or transport failure after entering `SENDING` is persisted as `UNCERTAIN`.
+submission. It enters `SENDING` before its one send attempt. An enabled Send button and one successful click return
+`verified_by: send-clicked` and `SENT`; no composer-content or post-click Stop
+check runs. If the Send click fails or its result is unavailable, the item is
+`FAILED` without automatic resend. Only `SENT` and `FAILED` are terminal
+submission outcomes; `SENT` means the browser click completed, not a provider
+delivery acknowledgment.

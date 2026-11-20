@@ -109,18 +109,6 @@ export async function prefilledSubmitWithApp(helpers,prompt,app=''){
   if(!app)return prefilledSubmit(helpers,prompt);
   const selector=await helpers.js(COMPOSER_JS);
   if(!selector)throw Error('ChatGPT app mention requires a visible composer');
-  // ChatGPT's rich composer collapses block-boundary newlines in innerText.
-  // Verify the exact content, ignoring only whitespace normalization.
-  const equivalent=(a,b)=>String(a).replace(/\s+/g,'')===String(b).replace(/\s+/g,'');
-  let before='';
-  try{
-    await waitUntilStable(async()=>{
-      before=await composerText(helpers,selector);return {text:before}
-    },state=>equivalent(state.text,prompt),{
-      timeout:25,interval:0.3,stableSamples:2,phase:'app mention prefill',sleep:helpers.sleep
-    });
-  }catch(error){throw Error('Prefilled text not ready before app mention: '+JSON.stringify({observedLength:before.length,expectedLength:prompt.length}))}
-
   await attachAppMention(helpers,selector,helpers.target_id||null,app,{timeout:15});
   for(let i=0;i<prompt.length;i+=200){
     const chunk=prompt.slice(i,i+200);
@@ -129,7 +117,6 @@ export async function prefilledSubmitWithApp(helpers,prompt,app=''){
   }
   const mention=await helpers.js(`(() => {const e=document.querySelector(${JSON.stringify(selector)});return !!e&&[...e.querySelectorAll('[app-mention-name]')].some(n=>(n.getAttribute('app-mention-name')||'').toLowerCase()===${JSON.stringify(app.toLowerCase())});})()`);
   if(!mention)throw Error('ChatGPT composer lost the structured app mention');
-  if(!equivalent(await composerText(helpers,selector),prompt))throw Error('ChatGPT composer lost the prompt after app mention');
   return prefilledSubmit(helpers,prompt);
 }
 

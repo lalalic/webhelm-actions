@@ -67,7 +67,7 @@ test('new-thread uses prompt.md for >2k chars and returns real thread receipt',a
   const result=await newThread({helpers:f.helpers,config:{message:long,mode:'chat',temporary:false}});
   assert.equal(result.status,'submitted');
   assert.equal(result.thread_id,'same-thread');
-  assert.equal(result.verified_by,'user-turn');
+  assert.equal(result.verified_by,'send-clicked');
   assert.equal(f.calls.clicks,1);
   assert.equal(f.calls.uploads.length,1);
   assert.equal(f.calls.uploads[0].text,long);
@@ -80,7 +80,7 @@ test('new-turn sync uses prompt.md for >2k chars; async remains queue-owned',asy
   const f=browserFixture(),long='  '+'B'.repeat(2100)+'  \n';
   const result=await newTurn({helpers:f.helpers,config:{mode:'sync',thread_id:'same-thread',message:long}});
   assert.equal(result.status,'submitted');
-  assert.equal(result.verified_by,'user-turn');
+  assert.equal(result.verified_by,'send-clicked');
   assert.equal(f.calls.uploads.length,1);
   assert.equal(f.calls.uploads[0].text,long);
   assert.equal(f.calls.clicks,1);

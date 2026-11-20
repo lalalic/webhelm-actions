@@ -1,8 +1,8 @@
 import { waitUntilStable } from "./readiness.mjs";
 export const SEND_ENABLED_JS =
-  `(() => { const buttons=[...document.querySelectorAll('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"],form button[type="submit"]')];const b=buttons.find(e=>e.getClientRects().length>0);return !!b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true'; })()`;
+  `(() => [...document.querySelectorAll('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"],form button[type="submit"]')].some(b => b.getClientRects().length > 0 && !b.disabled && b.getAttribute('aria-disabled') !== 'true'))()`;
 export const CLICK_SEND_JS =
-  `(() => { const visible=e=>!!e&&!!e.getClientRects().length; const running=[...document.querySelectorAll('button')].some(b=>{ if(!visible(b))return false; const l=(b.getAttribute('aria-label')||'').trim().toLowerCase(),t=(b.getAttribute('title')||'').trim().toLowerCase(),d=(b.getAttribute('data-testid')||'').trim().toLowerCase(); return ['stop generating','stop answering','stop response','stop'].includes(l)||['stop generating','stop answering'].includes(t)||['stop-button','stop-generating-button'].includes(d); }); if(running)return false; const b=document.querySelector('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"],form button[type="submit"]'); if(!b||b.disabled||b.getAttribute('aria-disabled')==='true')return false; b.click(); return true; })()`;
+  `(() => {const b=[...document.querySelectorAll('button[data-testid="send-button"],button[aria-label="Send prompt"],button[aria-label="Send"],form button[type="submit"]')].find(b=>b.getClientRects().length > 0 && !b.disabled && b.getAttribute('aria-disabled') !== 'true');if(!b)return false;b.click();return true;})()`;
 export function targetUrl(
   { project_id, thread_id, temporary = false, prompt } = {},
 ) {
@@ -32,12 +32,12 @@ export function visibleDeliveryError(js) {
   );
 }
 // IMPORTANT: this is the normal URL ?prompt= submission path. Treat page
-// location plus Send/Stop button state as the readiness/acceptance signals.
+// location plus the enabled Send button as the readiness signal.
 // Do not require an editable composer or wait for ?prompt= to disappear before
-// clicking Send. Click only once, then verify; never retry after an ambiguous
-// acceptance. The structured @App composer path is opt-in, not a replacement.
+// clicking Send. Click only once and return success after the click helper
+// completes. The structured @App composer path is an opt-in exception.
 export async function prefilledSubmit(helpers, prompt, {
-  send = true, postSubmitTimeout = 30,
+  send = true,
 } = {}) {
   const { js } = helpers;
   const sendEnabled = async () => !!(await js(SEND_ENABLED_JS));
@@ -82,72 +82,13 @@ export async function prefilledSubmit(helpers, prompt, {
     } catch {
       throw new Error("URL-prefilled Send control was not ready before click");
     }
-    await helpers.click(selector);
+    if (await helpers.click(selector) === false) {
+      throw new Error("URL-prefilled Send click failed");
+    }
   } else if (!(await js(CLICK_SEND_JS))) {
     throw new Error("URL-prefilled Send became unavailable before click");
   }
-  // The SPA may accept a turn without immediately displaying it. A failed
-  // transient receipt must never trigger another Send click.
-  const persistedProbe =
-    '(() => [...document.querySelectorAll("h4[data-conversation-role=user]")].some(e => (e.parentElement?.innerText || e.parentElement?.textContent || "").includes(' +
-    JSON.stringify(prompt.slice(0, Math.min(prompt.length, 120))) + '))()';
-  let verified;
-  try {
-    verified = await waitUntilStable(
-      async () => {
-        const turns = await js(`(() => {
-          const roles=[...document.querySelectorAll('[data-message-author-role="user"]')]
-            .map(e=>(e.innerText||e.textContent||'').trim());
-          const headings=[...document.querySelectorAll('h4[data-conversation-role="user"]')]
-            .map(e=>(e.parentElement?.innerText||e.parentElement?.textContent||'').trim());
-          return roles.concat(headings);
-        })()`);
-        const accepted = Array.isArray(turns) && turns.some(t => t.includes(prompt.slice(0, Math.min(120, prompt.length))));
-        return { send_disabled: !(await sendEnabled()), accepted };
-      },
-      (s) => s.accepted || s.send_disabled,
-      {
-        timeout: postSubmitTimeout,
-        interval: 0.2,
-        stableSamples: 2,
-        phase: "post-click Send disabled",
-        sleep: helpers.sleep,
-      },
-    );
-  } catch {
-    // Verify the saved message in the durable thread by reloading without
-    // a prompt query, which cannot submit again.
-    if (typeof helpers.page_info === "function" &&
-        typeof helpers.goto_url === "function" &&
-        typeof helpers.wait_for_load === "function") {
-      try {
-        const current = new URL((await helpers.page_info()).url);
-        if (current.hostname === "chatgpt.com" &&
-            current.pathname.split("/c/").length === 2 &&
-            current.pathname.split("/c/")[1].length > 0) {
-          current.search = "";
-          current.hash = "";
-          await helpers.goto_url(current.toString());
-          await helpers.wait_for_load();
-          await waitUntilStable(
-            () => js(persistedProbe),
-            Boolean, { timeout: 20, interval: 0.3, stableSamples: 2,
-              phase: "persisted user turn in durable thread",
-              sleep: helpers.sleep },
-          );
-          return { verified_by: "persisted-user-turn", turn: { id: null } };
-        }
-      } catch {
-        // Still ambiguous: preserve error and never resend.
-      }
-    }
-    const e = new Error("Turn acceptance unverified; delivery may already exist");
-    e.name = "SubmissionVerificationError";
-    e.diagnostic = { reason: "post_submit_unverified_no_resend" };
-    throw e;
-  }
-  return {
-    verified_by: verified.accepted ? "user-turn" : "send-button-disabled",
-    turn: { id: null },
-  };
+  // A successful single Send click is the complete submission receipt.
+  // No input-text, user-turn, Stop, or post-click Send-state checks.
+  return { verified_by: "send-clicked", turn: { id: null } };
 }

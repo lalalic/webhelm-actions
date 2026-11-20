@@ -147,7 +147,7 @@ test("new-turn sync mode uses caller Session and returns verified receipt", asyn
   assert.equal(clicked, 1);
   assert.equal(result.status, "submitted");
   assert.equal(result.thread_url, scopedUrl, "canonical Project redirect is returned");
-  assert.equal(result.verified_by, "send-button-disabled");
+  assert.equal(result.verified_by, "send-clicked");
 });
 
 test("delivery failures normalize to stable public error codes", async () => {
@@ -215,7 +215,7 @@ test("new-turn sync rejects a redirect to a different thread before sending", as
   assert.equal(submitted, false, "never submit to a different thread");
 });
 
-test("new-turn shared submission recognizes the accepted You said user turn even if Send remains enabled", async () => {
+test("new-turn accepts click even if Send remains enabled and user turn is absent", async () => {
   const { prefilledSubmit, SEND_ENABLED_JS } = await import("../runtime/lifecycle-common.mjs");
   const prompt = "WebHelm new-turn redirect verification for Neo Mobile Chat Gateway";
   let sent = 0;
@@ -235,10 +235,10 @@ test("new-turn shared submission recognizes the accepted You said user turn even
   };
   const receipt = await prefilledSubmit(helpers, prompt);
   assert.equal(sent, 1);
-  assert.equal(receipt.verified_by, "user-turn");
+  assert.equal(receipt.verified_by, "send-clicked");
 });
 
-test("prefilled submission verifies persisted turn after SPA fails to show receipt, without re-sending", async () => {
+test("prefilled submission does not inspect or reload the conversation after Send click", async () => {
   const { prefilledSubmit, SEND_ENABLED_JS } = await import("../runtime/lifecycle-common.mjs");
   const prompt = "Unique persisted owner message example";
   let clicks = 0, reloads = 0, lastUrl;
@@ -257,9 +257,8 @@ test("prefilled submission verifies persisted turn after SPA fails to show recei
   };
   const receipt = await prefilledSubmit(helpers, prompt, {postSubmitTimeout:0.3});
   assert.equal(clicks,1,"Never click Send again to recover a receipt");
-  assert.equal(reloads,1);
-  assert.equal(lastUrl,"https://chatgpt.com/g/g-p-test/c/thread-test");
-  assert.equal(receipt.verified_by,"persisted-user-turn");
+  assert.equal(reloads,0,"click is the final success check; no reload");
+  assert.equal(receipt.verified_by,"send-clicked");
 });
 
 
@@ -285,6 +284,36 @@ test("prefilled Send rechecks a React-replaced button without duplicate clicks",
   };
   const receipt = await prefilledSubmit(helpers, 'smoke');
   assert.equal(clicks, 1);
-  assert.equal(receipt.verified_by, 'user-turn');
+  assert.equal(receipt.verified_by, 'send-clicked');
   assert.ok(probes >= 3);
+});
+
+
+test("prefilled Send never clicks if disabled, and a failed click is not SENT", async () => {
+  const {prefilledSubmit, SEND_ENABLED_JS} = await import("../runtime/lifecycle-common.mjs");
+  let clicks=0;
+  const helpers={
+    sleep:async()=>{},
+    js:async code=>{
+      if(code===SEND_ENABLED_JS)return false;
+      throw Error("Unexpected content or post-send probe");
+    },
+    click:async()=>{clicks++},
+  };
+  await assert.rejects(
+    ()=>prefilledSubmit(helpers,"irrelevant", {send:true}),
+    /Send button was not observed ready/,
+  );
+  assert.equal(clicks,0);
+  const enabled={
+    ...helpers,
+    js:async code=>{
+      if(code===SEND_ENABLED_JS)return true;
+      if(code.includes("const selectors=['button[aria-label="))return 'button[aria-label="Send"]';
+      throw Error("Unexpected content or post-send probe");
+    },
+    click:async()=>{clicks++;throw Error("click failed");},
+  };
+  await assert.rejects(()=>prefilledSubmit(enabled,"irrelevant"),/click failed/);
+  assert.equal(clicks,1);
 });

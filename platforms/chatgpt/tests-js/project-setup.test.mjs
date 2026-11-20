@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { run } from "../actions/_project_setup.mjs";
+import { SEND_ENABLED_JS } from "../runtime/lifecycle-common.mjs";
 
 const PROJECT_ID = "g-p-6af0d638bb04819190be1b77ae7e648e";
 const THREAD_ID = "6ae99a2e-aaaa-bbbb-cccc-ddddeeeeffff";
@@ -35,6 +36,7 @@ function fakeProjectBrowser({ instructions, initialPrompt, knownThread = false }
       state.sendEnabled = false;
     },
     async js(source) {
+      if (source === SEND_ENABLED_JS) return state.sendEnabled;
       if (source.includes("const b=[...document.querySelectorAll('button')],f=n=>b.find")) return "chat";
       if (source.includes("could not load this chatgpt conversation")) return null;
       if (source.includes("const buttons=[...document.querySelectorAll('button[data-testid=") &&

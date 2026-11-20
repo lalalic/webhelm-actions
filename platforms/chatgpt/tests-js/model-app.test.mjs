@@ -26,7 +26,7 @@ test('structured App mention is inserted before the REAL Send click, with origin
     },
   };
   const result=await prefilledSubmitWithApp(helpers,prompt,'Neo');
-  assert.equal(result.verified_by,'user-turn');
+  assert.equal(result.verified_by,'send-clicked');
   assert.ok(clicked);
   assert.deepEqual(events.slice(0,3),['typed-at','mention-suggestion','mention-verified']);
   assert.ok(events.indexOf('retype-original-prompt')<events.indexOf('trusted-send-click'));

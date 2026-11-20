@@ -1,11 +1,10 @@
 // INVARIANT — ChatGPT URL-prefill delivery contract (newThread/newTurn):
 // 1. Use targetUrl(..., prompt) and navigate to the ?prompt= URL. The URL is
 //    the submission trigger; do not instead focus/type into an editable composer.
-// 2. Observe location and the Send/Stop button state together. ChatGPT can keep
+// 2. Observe location and enabled Send button status. ChatGPT can keep
 //    ?prompt= until Send is clicked; do not require its removal before clicking.
-// 3. Click the enabled Send button AT MOST ONCE. Stop/generating indicates the
-//    turn was accepted; verify the resulting thread/turn receipt and URL state.
-// 4. Never resend while acceptance is uncertain. Do not replace these checks
+// 3. Click the enabled Send button AT MOST ONCE and mark submitted.
+// 4. Never resend after clicking. Do not replace these checks
 //    with composer DOM visibility, contenteditable selection, or text matching.
 // 5. A structured @App mention (which edits the composer) is an explicit
 //    opt-in exception ONLY; never make it part of the default model route.

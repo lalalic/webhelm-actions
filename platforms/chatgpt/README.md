@@ -70,9 +70,10 @@ ChatGPT App mention, not a plain text `@Name`) and `model_choice` (a visible
 model picker option such as `GPT-5.6 Sol`). These do not change defaults for
 other callers. On `new-turn`, app/model selection requires `mode: sync` and
 a caller-owned WebHelm Session; `mode: async` rejects these options instead of
-silently dropping required tool access. New-thread only retries a Send click
-when the browser explicitly shows an unchanged unsent composer, no user turn
-and no active generation; an ambiguous or accepted submission is never retried.
+silently dropping required tool access. New-thread and new-turn never compare composer content or inspect user-turn
+text to verify delivery. Once the Send button is enabled, a single successful
+click is recorded as submitted. The action never retries a click; new-thread
+still extracts its durable thread ID from the resulting URL.
 
 `new-thread` and `new-turn` accept optional `enforcement_context` in the
 Action config. WebHelm wraps it in `<top-instructions>`, independently of the

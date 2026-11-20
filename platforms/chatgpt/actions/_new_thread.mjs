@@ -1,11 +1,11 @@
 // INVARIANT — ChatGPT URL-prefill delivery contract (newThread/newTurn):
 // 1. Use targetUrl(..., prompt) and navigate to the ?prompt= URL. The URL is
 //    the submission trigger; do not instead focus/type into an editable composer.
-// 2. Observe location and the Send/Stop button state together. ChatGPT can keep
+// 2. Observe location and enabled Send button status. ChatGPT can keep
 //    ?prompt= until Send is clicked; do not require its removal before clicking.
-// 3. Click the enabled Send button AT MOST ONCE. Stop/generating indicates the
-//    turn was accepted; verify the resulting thread/turn receipt and URL state.
-// 4. Never resend while acceptance is uncertain. Do not replace these checks
+// 3. Click the enabled Send button AT MOST ONCE and mark submitted.
+//    Extract the new durable thread ID from the resulting URL.
+// 4. Never resend after clicking. Do not replace these checks
 //    with composer DOM visibility, contenteditable selection, or text matching.
 // 5. A structured @App mention (which edits the composer) is an explicit
 //    opt-in exception ONLY; never make it part of the default model route.
@@ -93,7 +93,7 @@ export async function run({ helpers, config = {} }) {
     };
   }
   const end = Date.now() + 60000;
-  let thread_id = null, thread_url = null, lastState = null, retried=false;
+  let thread_id = null, thread_url = null;
   while (Date.now() < end) {
     const current = (await page_info()).url.split("?")[0],
       path = new URL(current).pathname.replace(/\/$/, "");
@@ -102,28 +102,9 @@ export async function run({ helpers, config = {} }) {
       thread_url = current;
       if (thread_id) break;
     }
-    if(!retried && Date.now()>end-47_000){
-      lastState=await js(`(() => {
-        const e=document.querySelector('#prompt-textarea,[contenteditable="true"]');
-        const t=(e?.innerText||e?.textContent||e?.value||'').trim();
-        const userTurns=document.querySelectorAll('[data-conversation-role="user"],[data-message-author-role="user"]').length;
-        const generating=!!document.querySelector('button[aria-label="Stop"]');
-        const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]'];
-        const send=selectors.find(s=>{const b=document.querySelector(s);return !!b&&!b.disabled&&b.getClientRects().length>0});
-        return {path:location.pathname,userTurns,generating,hasSend:!!send,
-          sendSelector:send||null,composerLength:t.length,prefix:t.slice(0,75)};
-      })()`);
-      // Retry only when NO user turn exists and the unchanged prompt remains
-      // visibly ready to send. This is not a retry of an accepted submission.
-      if(lastState?.hasSend && !lastState.userTurns && !lastState.generating &&
-         lastState.composerLength>100 && lastState.prefix?.includes('top-instructions')){
-        await helpers.click(lastState.sendSelector);
-        retried=true;
-      }
-    }
     await sleep(200);
   }
-  if (!thread_id) throw new Error('ChatGPT did not assign a durable thread id: '+JSON.stringify({retried,lastState}));
+  if (!thread_id) throw new Error('ChatGPT did not assign a durable thread id after Send click');
   if (project_id && !new URL(thread_url).pathname.includes("/g/" + project_id)) {
     throw new Error("ChatGPT new thread is not inside the requested Project");
   }
