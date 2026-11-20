@@ -11,7 +11,7 @@
 // Keep this protocol when refactoring: earlier composer-first changes caused
 // "ChatGPT app mention requires a visible composer" in Codex multi-turn runs.
 
-import { deliveryMessage, withPromptFile } from "./_prompt-file.mjs";
+import { deliveryMessage, withPromptFile, uploadAttachments } from "./_prompt-file.mjs";
 import {
   prefilledSubmitWithApp,
   selectChatGPTModel,
@@ -19,49 +19,24 @@ import {
   targetUrl,
 } from "./_action-common.mjs";
 export async function run({ helpers, config = {} }) {
-  const mode = config.mode === undefined ? "async" : config.mode;
-  if (
-    typeof mode !== "string" || !["async", "sync"].includes(mode) ||
-    Object.prototype.hasOwnProperty.call(config, "sync")
-  ) {
-    throw new TypeError(
-      "mode must be exactly async or sync; legacy sync is not supported",
-    );
-  }
-  const project_id = String(config.project_id || "").trim() || null,
-    thread_id = String(config.thread_id || "").trim(),
-    message = String(config.message ?? ""),
-    enforcement_context = config.enforcement_context ?? "",
-    app = String(config.app || "").trim(),
-    model_choice = String(config.model_choice || "").trim();
-  if (!thread_id) throw new Error("thread_id is required");
-  if (!message.trim()) throw new Error("message is required");
-  if (mode === "async") {
-    if(app||model_choice)throw Error('App mentions and model_choice require mode=sync (caller-owned Session)');
-    let enqueue;
-    if (typeof helpers.enqueueChatGPTTurn === "function") {
-      enqueue = (request) => helpers.enqueueChatGPTTurn(request);
-    } else if (typeof helpers.chatgptQueue?.enqueue === "function") {
-      enqueue = (request) => helpers.chatgptQueue.enqueue(request);
-    }
-    if (!enqueue) {
-      throw new Error(
-        "async new-turn requires the daemon ChatGPT queue integration",
-      );
-    }
-    return await enqueue({
-      thread_id,
-      project_id,
-      message,
-      ...(enforcement_context ? {enforcement_context} : {}),
-      idempotency_key: config.idempotency_key || config.idempotencyKey,
-      mergeable: config.mergeable === undefined ? false : config.mergeable,
-    });
-  }
+  // Queue routing belongs to WebHelm; this Action always sends directly.
+  if (Object.hasOwn(config,'mode') || Object.hasOwn(config,'sync'))
+    throw TypeError('mode is not a browser Action input; use WebHelm Queue or direct Session routing');
+  const project_id=String(config.project_id||'').trim()||null,
+    thread_id=String(config.thread_id||'').trim(),
+    message=String(config.message??''),
+    enforcement_context=config.enforcement_context??'',
+    app=String(config.app||'').trim(),
+    model_choice=String(config.model_choice||'').trim(),
+    files=config.file??[];
+  if (!thread_id) throw Error('thread_id is required');
+  if (!Array.isArray(files) || files.length>4) throw TypeError('file must contain at most four paths');
+  if (!message.trim() && !files.length) throw Error('message or file required');
+  const prompt=message.trim()?message:'See attached files.';
   const { goto_url, wait_for_load, page_info } = helpers;
   // The thread ID alone is sufficient. ChatGPT may canonicalize this
   // ordinary URL to its Project-scoped /g/<id>[-slug]/c/<thread> URL.
-  const url = targetUrl({ thread_id, prompt: deliveryMessage(message,enforcement_context) });
+  const url = targetUrl({ thread_id, prompt: deliveryMessage(prompt,enforcement_context) });
   await goto_url(url);
   await wait_for_load();
   await requireNoDeliveryError(helpers);
@@ -81,7 +56,8 @@ export async function run({ helpers, config = {} }) {
   }
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
-  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmitWithApp(helpers, prompt, app), enforcement_context);
+  if (files.length) await uploadAttachments(helpers,files);
+  const receipt = await withPromptFile(helpers, prompt, content => prefilledSubmitWithApp(helpers, content, app), enforcement_context);
   const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",

@@ -54,23 +54,21 @@ Destructive controls (`Disconnect`, `Uninstall`, `Delete app`) are intentionally
 
 Browser Workspace owns the ChatGPT UI mechanics for orchestrator lifecycle handoff.
 
-- `new-turn`: given stable `project_id`, `thread_id`, and `message`, submit a continuation in the same thread and return with public `status: submitted`. Omitted `mode` defaults to `"async"`: durable-queue delivery uses a private dispatcher session and returns as soon as queued. Set `mode` to `"sync"` or pass `--mode sync` with a caller-owned `--session-id` to deliver in that session; it waits for the current assistant turn to finish, verifies submission, and returns without waiting for the new assistant answer. The only accepted values are the exact strings `"async"` and `"sync"`. Other values and types, including the legacy boolean `sync` config key, are rejected.
+- `new-turn`: given stable `project_id`, `thread_id` and `message` (or attachments), submit to the same conversation. **Without a caller Session**, `webhelm platform run chatgpt new-turn --config turn.json` enqueues through `queues/new-turn.mjs`, returning `{status:'queued',queue_id,...}` immediately. **With `--session-id`**, it directly calls the same `_new_turn.mjs` Action. The Action clicks Send once and returns `status:'submitted'` without waiting for the assistant response. `mode`/`sync` inputs and `--mode` are retired; the caller-owned Session decides direct versus queued execution.
 - `new-thread`: given stable `project_id` and `message` (plus optional `source_thread_id` provenance), open the same Project, submit the continuation to create a fresh thread, and return the durable new `thread_id` once ChatGPT replaces any temporary local id.
 
 **Long prompts (>2,000 characters):** `new-thread` and synchronous `new-turn`
 write the complete message to a private temporary `prompt.md`, confirm its upload
 in the current Browser Session, and submit the short text `Read prompt.md and
 execute the task in that file.` The temporary file is deleted after the
-attempt succeeds or fails. Asynchronous `new-turn` has the same threshold and
-file-upload behavior in the Runtime's durable queue. Callers should send the
+attempt succeeds or fails. Queued `new-turn` invokes exactly the same Action, including its prompt.md threshold and
+file-upload behavior in the Platform Action. Callers should send the
 original full prompt, not create another input file or truncate it.
 
 `new-thread` and `new-turn` also support optional `app` (a structured
 ChatGPT App mention, not a plain text `@Name`) and `model_choice` (a visible
 model picker option such as `GPT-5.6 Sol`). These do not change defaults for
-other callers. On `new-turn`, app/model selection requires `mode: sync` and
-a caller-owned WebHelm Session; `mode: async` rejects these options instead of
-silently dropping required tool access. New-thread and new-turn never compare composer content or inspect user-turn
+other callers. On `new-turn`, queued calls invoke the same browser Action and support the same App/model options; merge is disabled for requests containing these options. New-thread and new-turn never compare composer content or inspect user-turn
 text to verify delivery. Once the Send button is enabled, a single successful
 click is recorded as submitted. The action never retries a click; new-thread
 still extracts its durable thread ID from the resulting URL.
@@ -79,27 +77,19 @@ still extracts its durable thread ID from the resulting URL.
 Action config. WebHelm wraps it in `<top-instructions>`, independently of the
 caller's protocol. For short tasks it precedes the raw `message`; for long
 tasks only the `message` is attached as `prompt.md` and the context remains
-in the visible composer before the file-reading instruction. The option is
-fully optional and the old behavior remains unchanged without it. Async
-`new-turn` persists the field in the durable queue.
+in the visible composer before the file-reading instruction. The option is optional; the WebHelm Queue Manager persists the field and invokes the normal Action after `validate_new_turn_ready` returns READY.
 
 These actions are control-transfer primitives. The generic Browser Workspace runner owns session start/stop and cleanup. Product code should pass stable Project/Thread IDs rather than persist ChatGPT URLs or DOM identities.
 
 ```bash
-# Omitted mode defaults to durable asynchronous delivery; result status is submitted.
+# No Session means asynchronous Queue delivery; result status is queued.
 bw platform run chatgpt new-turn --config turn.json
 
-# Opt in to synchronous delivery inside an existing caller-owned session.
-bw platform run chatgpt new-turn --mode sync --session-id SESSION_ID --config turn.json
+# Direct delivery inside an existing caller-owned session.
+bw platform run chatgpt new-turn --session-id SESSION_ID --config turn.json
 ```
 
-JSON config may select either mode with `"mode": "async"` or
-`"mode": "sync"`. A conflicting CLI `--mode` and config mode is rejected.
-Invalid values or types such as `{"mode": true}`, and the legacy boolean
-`{"sync": true}` key, are rejected; use only the exact strings `"async"` or
-`"sync"`.
-MCP callers that invoke the platform action through the Browser Workspace
-runner use the same config field and validation rules.
+The CLI selects direct or queued delivery from Session ownership; no `mode` field is accepted.
 
 
 ### ChatGPT project-setup (existing Projects)
@@ -121,4 +111,4 @@ For subsequent messages, `new-turn` reuses the ordinary
 canonicalize this to a Project-scoped `/g/<projectId>[-slug]/c/<threadId>`
 path. The Action verifies the thread ID and rejects a different Project
 when its canonical scope is visible, rather than requiring literal pathname
-equality. The asynchronous `new-turn` queue behavior remains unchanged.
+equality. Queue Policy controls grouping, title, readiness validation and optional enqueue-time merge; the browser Action contains no queue dispatcher.

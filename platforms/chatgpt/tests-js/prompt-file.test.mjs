@@ -76,9 +76,9 @@ test('new-thread uses prompt.md for >2k chars and returns real thread receipt',a
   assert.equal(existsSync(f.calls.uploads[0].file),false);
 });
 
-test('new-turn sync uses prompt.md for >2k chars; async remains queue-owned',async()=>{
+test('new-turn sync uses prompt.md for >2k chars; async cannot run in browser Action',async()=>{
   const f=browserFixture(),long='  '+'B'.repeat(2100)+'  \n';
-  const result=await newTurn({helpers:f.helpers,config:{mode:'sync',thread_id:'same-thread',message:long}});
+  const result=await newTurn({helpers:f.helpers,config:{thread_id:'same-thread',message:long}});
   assert.equal(result.status,'submitted');
   assert.equal(result.verified_by,'send-clicked');
   assert.equal(f.calls.uploads.length,1);
@@ -86,13 +86,7 @@ test('new-turn sync uses prompt.md for >2k chars; async remains queue-owned',asy
   assert.equal(f.calls.clicks,1);
   assert.equal(new URL(f.calls.navigation[0]).searchParams.get('prompt'),PROMPT_FILE_MESSAGE);
   assert.equal(existsSync(f.calls.uploads[0].file),false);
-  const q={};
-  const asyncResult=await newTurn({
-    helpers:{enqueueChatGPTTurn:async v=>(Object.assign(q,v),{queue_id:'q1',status:'queued',thread_id:v.thread_id})},
-    config:{mode:'async',thread_id:'same-thread',message:long,idempotency_key:'key1'},
-  });
-  assert.equal(asyncResult.queue_id,'q1');
-  assert.equal(q.message,long,'queue receives full original text for its own file transport');
+  await assert.rejects(()=>newTurn({helpers:{},config:{mode:'async',thread_id:'same-thread',message:long}}),/mode is not a browser Action input/);
 });
 
 
@@ -108,16 +102,11 @@ test('optional enforcement_context stays in visible composer while long task is 
   assert.equal(f.calls.uploads[0].text,original);
   assert.equal(new URL(f.calls.navigation[0]).searchParams.get('prompt'),expected);
   const f2=browserFixture();
-  const follow=await newTurn({helpers:f2.helpers,config:{mode:'sync',thread_id:'same-thread',message:original,enforcement_context:context}});
+  const follow=await newTurn({helpers:f2.helpers,config:{thread_id:'same-thread',message:original,enforcement_context:context}});
   assert.equal(follow.status,'submitted');
   assert.equal(f2.calls.uploads[0].text,original);
   assert.equal(new URL(f2.calls.navigation.at(-1)).searchParams.get('prompt'),expected);
-  const q={};
-  const asyncResult=await newTurn({helpers:{enqueueChatGPTTurn:async payload=>(Object.assign(q,payload),{queue_id:'qid',status:'queued'})},
-    config:{mode:'async',thread_id:'same-thread',message:original,enforcement_context:context,idempotency_key:'one'}});
-  assert.equal(asyncResult.queue_id,'qid');
-  assert.equal(q.message,original);
-  assert.equal(q.enforcement_context,context);
+  await assert.rejects(()=>newTurn({helpers:{},config:{mode:'async',thread_id:'same-thread',message:original,enforcement_context:context}}),/mode is not a browser Action input/);
 });
 
 test('optional enforcement_context works for short messages and rejects unsafe oversized context',async()=>{

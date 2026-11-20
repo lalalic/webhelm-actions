@@ -81,3 +81,31 @@ export async function withPromptFile(helpers, message, submit, context = '') {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+// Binary attachments use the same browser Action for direct and queued sends.
+// Files are checked before any upload; the queue never implements site upload code.
+export async function uploadAttachments(helpers, files = []) {
+  const {existsSync,statSync}=await import('node:fs');
+  const {basename,isAbsolute}=await import('node:path');
+  if (!Array.isArray(files) || files.length>4 ||
+      files.some(file=>typeof file!=='string'||!isAbsolute(file)||!existsSync(file)||!statSync(file).isFile()))
+    throw TypeError('file must contain at most four existing absolute files');
+  if (!files.length) return;
+  if (typeof helpers.upload_file!=='function') throw Error('upload_file browser helper required');
+  let selector=await helpers.js(FILE_INPUT_JS);
+  if (!selector) {
+    await helpers.js(ADD_FILES_JS);
+    for (let i=0;i<50&&!selector;i++) {
+      await sleep(100);
+      selector=await helpers.js(FILE_INPUT_JS);
+    }
+  }
+  if (!selector) throw Error('ChatGPT file upload input not found');
+  for (const file of files) {
+    await helpers.upload_file(selector,file);
+    const expected=basename(file);
+    await waitUntilStable(async()=>await helpers.js(ATTACHMENT_STATE_JS)||{names:[],pending:true},
+      state=>state.names.includes(expected)&&!state.pending,
+      {timeout:120,interval:0.25,stableSamples:2,phase:'attachment upload',sleep:helpers.sleep});
+  }
+}

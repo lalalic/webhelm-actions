@@ -55,11 +55,8 @@ test('optional model selection waits for picker hydration and selects Sol withou
   await selectChatGPTModel(empty,'');
 });
 
-test('async newTurn refuses unsupported App/model options instead of silently dropping tool access',async()=>{
-  let enqueued=false;
-  const helpers={enqueueChatGPTTurn:async()=>{enqueued=true;throw Error('should not enqueue')}};
-  for(const config of [{app:'Neo'},{model_choice:'GPT-5.6 Sol'}]){
-    await assert.rejects(()=>newTurn({helpers,config:{thread_id:'thread',message:'test',...config}}),/require mode=sync/);
+test('browser Action cannot bypass daemon queue routing with async mode',async()=>{
+  for(const config of [{app:'Neo'},{model_choice:'GPT-5.6 Sol'}]) {
+    await assert.rejects(()=>newTurn({helpers:{},config:{thread_id:'thread',message:'test',mode:'async',...config}}),/mode is not a browser Action input/);
   }
-  assert.equal(enqueued,false);
 });

@@ -14,7 +14,7 @@ test("manifest maps every ChatGPT action to an existing native .mjs module", () 
   const entries = [...body.matchAll(/^\s{2}[\w-]+:\s+"([^"]+)"/gm)].map((m) =>
     m[1]
   );
-  assert.equal(entries.length, 9);
+  assert.equal(entries.length, 10);
   for (const file of entries) {
     assert.match(file, /\.mjs$/);
     assert.ok(existsSync(join(root, file)), file);
@@ -25,7 +25,7 @@ test("manifest maps every ChatGPT action to an existing native .mjs module", () 
 });
 
 test("all ChatGPT JavaScript modules pass node syntax validation", () => {
-  for (const folder of ["actions", "runtime"]) {
+  for (const folder of ["actions", "runtime", "queues"]) {
     for (
       const name of readdirSync(join(root, folder)).filter((x) =>
         x.endsWith(".mjs")
@@ -67,53 +67,14 @@ test("target routing preserves project/thread/temporary URL mapping", () => {
   );
 });
 
-test("new-turn async queues by default and validates exact mode strings", async () => {
-  let request;
-  const helpers = {
-    enqueueChatGPTTurn: async (value) => (request = value, {
-      ok: true,
-      status: "queued",
-      queue_id: "q1",
-      thread_id: value.thread_id,
-      state: "QUEUED",
-    }),
-  };
-  const result = await newTurn({
-    helpers,
-    config: {
-      project_id: "p",
-      thread_id: "t",
-      message: "hello",
-      idempotency_key: "key",
-      mergeable: true,
-    },
-  });
-  assert.equal(result.queue_id, "q1");
-  assert.deepEqual(request, {
-    thread_id: "t",
-    project_id: "p",
-    message: "hello",
-    idempotency_key: "key",
-    mergeable: true,
-  });
-  for (const mode of [true, "ASYNC", "Sync", "", 1]) {
-    await assert.rejects(
-      () =>
-        newTurn({ helpers, config: { mode, thread_id: "t", message: "x" } }),
-      /mode must be exactly/,
-    );
+test("browser Action rejects async; queue routing stays in WebHelm", async () => {
+  for(const mode of ['async',true,'ASYNC','Sync','',1]) {
+    await assert.rejects(()=>newTurn({helpers:{},config:{mode,thread_id:'t',message:'x'}}),/mode is not a browser Action input/);
   }
-  await assert.rejects(
-    () =>
-      newTurn({
-        helpers,
-        config: { sync: true, thread_id: "t", message: "x" },
-      }),
-    /mode must be exactly/,
-  );
+  await assert.rejects(()=>newTurn({helpers:{},config:{sync:true,thread_id:'t',message:'x'}}),/mode is not a browser Action input/);
 });
 
-test("new-turn sync mode uses caller Session and returns verified receipt", async () => {
+test("new-turn direct Action uses caller Session and returns verified receipt", async () => {
   const { SEND_ENABLED_JS, CLICK_SEND_JS } = await import(
     "../runtime/lifecycle-common.mjs"
   );
@@ -141,7 +102,7 @@ test("new-turn sync mode uses caller Session and returns verified receipt", asyn
   };
   const result = await newTurn({
     helpers,
-    config: { mode: "sync", project_id: "p", thread_id: "t", message: "hello" },
+    config: { project_id: "p", thread_id: "t", message: "hello" },
   });
   assert.equal(nav, url, "new-turn navigates by ordinary thread ID and ?prompt");
   assert.equal(clicked, 1);
@@ -210,7 +171,7 @@ test("new-turn sync rejects a redirect to a different thread before sending", as
     click: async () => { submitted = true; },
   };
   await assert.rejects(() => run({ helpers, config: {
-    mode: "sync", thread_id: "expected-id", message: "test", project_id: "project",
+    thread_id: "expected-id", message: "test", project_id: "project",
   }}), /thread redirect mismatch/);
   assert.equal(submitted, false, "never submit to a different thread");
 });
@@ -316,4 +277,63 @@ test("prefilled Send never clicks if disabled, and a failed click is not SENT", 
   };
   await assert.rejects(()=>prefilledSubmit(enabled,"irrelevant"),/click failed/);
   assert.equal(clicks,1);
+});
+
+test('new queue readiness Action only checks the enabled Send button and never clicks',async()=>{
+  const {run}=await import('../actions/_validate_new_turn_ready.mjs');
+  const {SEND_ENABLED_JS}=await import('../runtime/lifecycle-common.mjs');
+  let navigated='',checks=0;
+  const helpers={
+    goto_url:async url=>{navigated=url;},wait_for_load:async()=>{},sleep:async()=>{},
+    js:async script=>{assert.equal(script,SEND_ENABLED_JS);return ++checks===3;},
+    click:async()=>{throw Error('readiness Action must never click Send');},
+  };
+  assert.equal(await run({helpers,config:{thread_id:'thread-1',message:'Hi'}}),true);
+  assert.equal(checks,3);
+  assert.equal(new URL(navigated).searchParams.get('prompt'),'Hi');
+});
+
+test('ChatGPT policy registers validate_new_turn_ready and safe merge rules',async()=>{
+  const policy=(await import('../queues/new-turn.mjs')).default;
+  assert.equal(policy.action,'new-turn');
+  assert.equal(policy.validate,'validate_new_turn_ready');
+  assert.equal(policy.group({thread_id:'a'}),'a');
+  assert.equal(policy.title({message:'First line\nprivate'}),'First line');
+  assert.equal(policy.url({thread_id:'a'}),'https://chatgpt.com/c/a');
+    assert.equal(policy.merge({mergeable:true,message:'one'},{mergeable:true,message:'two'}).message,'one\ntwo');
+  assert.equal(policy.merge({mergeable:true,message:'one',file:['/a']},{mergeable:true,message:'two'}),null);
+});
+
+test('queued and direct new-turn share binary attachment upload before one Send click',async t=>{
+  const {mkdtempSync,writeFileSync,rmSync,readFileSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const {SEND_ENABLED_JS,CLICK_SEND_JS}=await import('../runtime/lifecycle-common.mjs');
+  const dir=mkdtempSync(join(tmpdir(),'webhelm-chatgpt-binary-'));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const file=join(dir,'photo.png');
+  const bytes=Buffer.from([0,255,1,2,127,128]);
+  writeFileSync(file,bytes);
+  let clicks=0,uploaded=0,nav='';
+  const helpers={
+    goto_url:async url=>{nav=url;},wait_for_load:async()=>{},
+    page_info:async()=>({url:'https://chatgpt.com/c/t'}),sleep:async()=>{},
+    upload_file:async (selector,path)=>{
+      assert.equal(selector,'input[type="file"]');
+      assert.deepEqual(readFileSync(path),bytes);uploaded++;
+    },
+    js:async script=>{
+      if (script===SEND_ENABLED_JS) return true;
+      if (script===CLICK_SEND_JS) {clicks++;return true;}
+      if (script.includes('could not load this chatgpt conversation')) return null;
+      if (script.includes('input[name="upload-media"]')) return 'input[type="file"]';
+      if (script.includes('button[aria-label^="Remove "]')) return {names:['photo.png'],pending:false};
+      return null;
+    },
+  };
+  const outcome=await newTurn({helpers,config:{thread_id:'t',message:'Check image',file:[file]}});
+  assert.equal(uploaded,1);
+  assert.equal(clicks,1);
+  assert.equal(outcome.verified_by,'send-clicked');
+  assert.equal(new URL(nav).searchParams.get('prompt'),'Check image');
 });

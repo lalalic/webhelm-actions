@@ -7,6 +7,7 @@ actions:
   temporary-submit: "actions/_temporary_submit.mjs"
   thread-turn: "actions/_thread_turn.mjs"
   new-turn: "actions/_new_turn.mjs"
+  validate_new_turn_ready: "actions/_validate_new_turn_ready.mjs"
   new-thread: "actions/_new_thread.mjs"
   project-setup: "actions/_project_setup.mjs"
   bootstrap-start: "actions/_bootstrap_start.mjs"
