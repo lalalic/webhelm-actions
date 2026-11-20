@@ -12,6 +12,14 @@ export const STREAM_OBSERVER =
 // before navigation (only in the owned Z.ai tab) so the site can initialize.
 export const HIDDEN_FRAME_COMPAT =
   `(()=>{if(window.__webhelmZHiddenFrameCompat)return;
+    // "mode: chat" must mean the actual Chat UI, not a stale Agent choice
+    // persisted by another Z.ai tab. Override only this document's reads;
+    // NEVER rewrite the user's shared localStorage preference.
+    const siteGetItem=Storage.prototype.getItem;
+    Storage.prototype.getItem=function(key){
+      if(this===window.localStorage&&key==='last_mode')return 'default';
+      return siteGetItem.call(this,key);
+    };
     const nativeRequest=window.requestAnimationFrame.bind(window);
     const nativeCancel=window.cancelAnimationFrame.bind(window);
     const pending=new Map();let next=-1;
@@ -39,9 +47,18 @@ export const APP_READY =
     let f=key?c[key]:null;
     for(let i=0;f&&i<100;i++,f=f.return){
       const core=f.memoizedProps?.core?.current;
-      if(core)return core.initDone===true&&core.featuresApplied===true&&
-        core.mounted===true&&core.loading===false&&core.processing===false&&
-        !!core.selectedModels?.[0]&&typeof window.printChat==='function';
+      if(core){
+        // New chats set initDone during initial reset. Reopened /c/{id}
+        // threads instead hydrate an already completed assistant turn and
+        // legitimately leave initDone=false. Accept that verified state,
+        // never a partially loaded or still-generating prior response.
+        const current=core.history?.messages?.[core.history?.currentId];
+        const hydrated=location.pathname.startsWith('/c/')&&!!core.chat&&
+          current?.role==='assistant'&&current.done===true;
+        return (core.initDone===true||hydrated)&&core.featuresApplied===true&&
+          core.mounted===true&&core.loading===false&&core.processing===false&&
+          !!core.selectedModels?.[0]&&typeof window.printChat==='function';
+      }
     }
     return false;
   })()`;

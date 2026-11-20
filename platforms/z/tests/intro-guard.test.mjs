@@ -80,3 +80,20 @@ test('real Z new-turn lifecycle reuses the existing Thread, with exactly one nat
   assert.equal(receipt.status,'submitted');
   assert.match(receipt.verified_by,/matching user message/);
 });
+
+
+test('Z Chat Action forces actual Chat mode in its document without modifying shared mode preference',async()=>{
+  const {HIDDEN_FRAME_COMPAT}=await import('../actions/_lifecycle_common.mjs');
+  assert.match(HIDDEN_FRAME_COMPAT,/this===window\.localStorage&&key==='last_mode'/);
+  assert.match(HIDDEN_FRAME_COMPAT,/return 'default'/);
+  assert.doesNotMatch(HIDDEN_FRAME_COMPAT,/localStorage\.setItem\(['"]last_mode/);
+});
+
+
+test('Z reopened Thread can be ready with hydrated completed history even when initDone stays false',async()=>{
+  const {APP_READY}=await import('../actions/_lifecycle_common.mjs');
+  assert.match(APP_READY,/core\.initDone===true\|\|hydrated/);
+  assert.match(APP_READY,/current\.done===true/);
+  assert.match(APP_READY,/current\?\.role==='assistant'/);
+  assert.match(APP_READY,/location\.pathname\.startsWith\('\/c\/'\)/);
+});
