@@ -112,3 +112,15 @@ canonicalize this to a Project-scoped `/g/<projectId>[-slug]/c/<threadId>`
 path. The Action verifies the thread ID and rejects a different Project
 when its canonical scope is visible, rather than requiring literal pathname
 equality. Queue Policy controls grouping, title, readiness validation and optional enqueue-time merge; the browser Action contains no queue dispatcher.
+
+## Required 3-MVP verification after every Action change
+
+Before merging/publishing any ChatGPT Action, helper, policy or delivery
+contract change, run `WEBHELM_MVP_ALLOW_SEND=1 npm run test:e2e:chatgpt-mvps`
+from the `webhelm` Runtime checkout against the **new live daemon**.
+It must prove newThread, newTurn in the same Thread, and two different queued
+newTurns (FIFO, both `SENT`) in that **same Thread**. Mock tests alone are not
+release evidence. Record the sanitized result and clean up owned Sessions.
+When an older daemon has cached a dependency, restart it safely after its
+Sessions drain rather than treating a stale module import failure as a passing
+MVP. Do not resend ambiguous previous messages.

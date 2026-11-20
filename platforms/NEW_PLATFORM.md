@@ -57,6 +57,30 @@ Optional `merge(previous,incoming)` runs **at enqueue time** under WebHelm's dur
 
 The authoritative implementation contract is [Queue integration](https://github.com/lalalic/webhelm/blob/main/docs/QUEUE_INTEGRATION.md); test both the Policy and the read-only readiness Action with mocked Sessions, then verify site behavior in an owned browser Session before publishing.
 
+
+### Mandatory real ChatGPT Action regression (MVP1–3)
+
+After **every change** to a ChatGPT Action, helper, `manifest.yaml`, Queue Policy,
+readiness gate or WebHelm Runner that affects delivery, run the **real Chrome**
+acceptance gate on a fresh test Thread, not only `npm test` mocks:
+
+```sh
+WEBHELM_MVP_ALLOW_SEND=1 npm run test:e2e:chatgpt-mvps
+```
+
+Run this from the WebHelm **Runtime** checkout against the installed live daemon.
+It sends four deliberate test prompts: MVP1 `new-thread`, MVP2 direct `new-turn`
+on that Thread, then MVP3 two separate non-mergeable `new-turn` Queue items on
+that **same Thread**. Both Queue items must be persisted as `SENT` in FIFO order,
+with `send-clicked` receipts; all owned Sessions must be released. The gate
+fails closed if the live daemon still uses a legacy queue or is offline.
+The script requires explicit `WEBHELM_MVP_ALLOW_SEND=1` authorization and saves
+a sanitized evidence JSON under the local temporary directory (never Git).
+**No merge, push, live or clean until all three pass after the final code change.**
+An optional `--isolated-manual-queue` exercises the real generic queue engine
+through a live browser for diagnosis only; it does **not** count as passing the
+live daemon Queue MVP3.
+
 ## Optional login heartbeat (only for platforms that need it)
 
 A platform does **not** need a heartbeat merely because its browser session is
