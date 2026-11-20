@@ -7,6 +7,52 @@ export const STREAM_OBSERVER =
 // Z.ai sometimes displays a new-interface introduction above the composer.
 // Never click through an unexpected modal or retry an ambiguous submission.
 // Fail before typing so the user can dismiss the dialog in their own browser.
+// Z.ai awaits requestAnimationFrame during its initial app reset. Chromium
+// suppresses animation frames for hidden/background WebHelm tabs. Install this
+// before navigation (only in the owned Z.ai tab) so the site can initialize.
+export const HIDDEN_FRAME_COMPAT =
+  `(()=>{if(window.__webhelmZHiddenFrameCompat)return;
+    const nativeRequest=window.requestAnimationFrame.bind(window);
+    const nativeCancel=window.cancelAnimationFrame.bind(window);
+    const pending=new Map();let next=-1;
+    window.requestAnimationFrame=function(cb){
+      if(document.visibilityState==='hidden'){
+        const id=next--;
+        pending.set(id,setTimeout(()=>{pending.delete(id);cb(performance.now())},16));
+        return id;
+      }
+      return nativeRequest(cb);
+    };
+    window.cancelAnimationFrame=function(id){
+      if(pending.has(id)){clearTimeout(pending.get(id));pending.delete(id)}
+      else nativeCancel(id);
+    };
+    window.__webhelmZHiddenFrameCompat=true;
+  })()`;
+
+// Site's native chat composer has a separate initialized core: merely seeing
+// the textarea and an enabled Send button does NOT mean it can submit yet.
+export const APP_READY =
+  `(()=>{const c=document.querySelector('textarea[placeholder="Send a Message"]');
+    if(!c)return false;
+    const key=Object.keys(c).find(k=>k.startsWith('__reactFiber$'));
+    let f=key?c[key]:null;
+    for(let i=0;f&&i<100;i++,f=f.return){
+      const core=f.memoizedProps?.core?.current;
+      if(core)return core.initDone===true&&core.featuresApplied===true&&
+        core.mounted===true&&core.loading===false&&core.processing===false&&
+        !!core.selectedModels?.[0]&&typeof window.printChat==='function';
+    }
+    return false;
+  })()`;
+export async function waitForAppReady(h,deadline){
+  while(Date.now()<deadline){
+    if(await h.js(APP_READY))return;
+    await sleep(200);
+  }
+  throw Error('Z.ai React chat app not initialized; no message was submitted');
+}
+
 export const INTRO_BLOCKER_STATE =
   `(()=>[...document.querySelectorAll('div.fixed.inset-0')].some(e=>
     e.className?.toString().includes('z-100')&&
@@ -197,15 +243,25 @@ export async function run(cfg, mode, h) {
       throw new Error("Unsent draft or attachment; leave it untouched");
     }
   }
+  const activeThread=threadIdFromUrl((await h.page_info()).url);
+  const alreadyOnThread=mode==='new-turn'&&activeThread===expected;
   if (typeof h.cdp === "function") {
+    await h.cdp("Page.addScriptToEvaluateOnNewDocument", {
+      source: HIDDEN_FRAME_COMPAT,
+    });
     await h.cdp("Page.addScriptToEvaluateOnNewDocument", {
       source: STREAM_OBSERVER,
     });
   }
-  await h.goto_url(targetUrl(expected));
+  // A second navigation to the same live Z.ai thread can hang Page.navigate
+  // when its prior completion stream is still settling. Reuse the existing
+  // verified thread in place. New Sessions start on about:blank, allowing
+  // the hidden-frame compatibility script to run before the first Z render.
+  if (!alreadyOnThread) await h.goto_url(targetUrl(expected));
   await h.wait_for_load();
   await h.wait_for_element(COMPOSER, { timeout: 15, visible: true });
   await assertNoBlockingIntro(h);
+  await waitForAppReady(h, Math.min(deadline,Date.now()+30000));
   if (typeof h.cdp === "function") await h.js(STREAM_OBSERVER);
   const beforeState = await pageState(h);
   if (beforeState.text.trim() || beforeState.attachmentCount) {
@@ -227,15 +283,17 @@ export async function run(cfg, mode, h) {
       }}})()`,
     );
   }
-  await h.click(COMPOSER);
-  if (typeof h.cdp === "function") {
-    await h.cdp("Input.insertText", { text: message });
-  } else await h.fill_input(COMPOSER, message);
-  await h.wait_for_element(`${SEND_BUTTON}:not(:disabled)`, {
-    timeout: 15,
-    visible: true,
-  });
-  await h.click(SEND_BUTTON);
+  // Use Z.ai's own frontend submit bridge. A normal click/Enter on the
+  // hidden tab fires the HTML form but the chat request never starts. This
+  // synchronous, same-origin event invokes the exact same site submitPrompt
+  // dispatcher without exposing the (possibly token-bearing) text in a URL.
+  // Dispatch only once; never retry when the browser submission is uncertain.
+  await h.js(
+    `(()=>window.dispatchEvent(new MessageEvent('message', {
+      origin:location.origin,source:window,
+      data:{type:'input:prompt:submit',text:${JSON.stringify(message)}}
+    })))()`,
+  );
   const receipt = {
     status: "submitted",
     mode,
