@@ -361,6 +361,7 @@ test('ChatGPT policy registers validate_new_turn_ready and safe merge rules',asy
   const policy=(await import('../queues/new-turn.mjs')).default;
   assert.equal(policy.action,'new-turn');
   assert.equal(policy.validate,'validate_new_turn_ready');
+  assert.equal(policy.retries,0,'uncertain ChatGPT send must never be replayed');
   assert.equal(policy.group({thread_id:'a'}),'a');
   assert.equal(policy.title({message:'First line\nprivate'}),'First line');
   assert.equal(policy.url({thread_id:'a'}),'https://chatgpt.com/c/a');

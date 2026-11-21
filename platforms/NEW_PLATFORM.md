@@ -47,13 +47,13 @@ export default {
   action: 'new-turn',                // manifest.actions key for delivery
   validate: 'validate_new_turn_ready', // manifest.actions key, read-only readiness gate
   // Optional: url(action), merge(previous, incoming), execute(action),
-  // concurrency, intervalMs.
+  // concurrency, intervalMs, retries (default 1 additional attempt; use 0 when unsafe).
 };
 ```
 
 `validate` is **another Platform Action**: return `true` only when the next queued Action can safely start, otherwise `false` to wait and check again. It does not validate the input schema, perform delivery, or confirm the previous send. Each Action performs its own input and immediate pre-send validation. The queued execution calls the same `action` module as direct execution through the ordinary Platform Runner.
 
-Optional `merge(previous,incoming)` runs **at enqueue time** under WebHelm's durable transaction. Only the last unclaimed, unleased QUEUED or pre-send WAITING record in the same `group` is eligible, and only when both requests have `mergeable:true`. Return a merged Action config or `null` to keep separate. Preserve compatible content, attachments, idempotency and context. Claimed/SENDING/SENT/FAILED items must never merge. WebHelm persists and schedules the queue; the Policy does not own SQLite or Sessions.
+Optional `merge(previous,incoming)` runs **at enqueue time** under WebHelm's durable transaction. Only the last unclaimed, unleased QUEUED record in the same `group` is eligible, and only when both requests have `mergeable:true`. Return a merged Action config or `null` to keep separate. Preserve compatible content, attachments, idempotency and context. Claimed/SENDING/SENT/FAILED items must never merge. WebHelm persists and schedules the queue; the Policy does not own SQLite or Sessions.
 
 The authoritative implementation contract is [Queue integration](https://github.com/lalalic/webhelm/blob/main/docs/QUEUE_INTEGRATION.md); test both the Policy and the read-only readiness Action with mocked Sessions, then verify site behavior in an owned browser Session before publishing.
 
