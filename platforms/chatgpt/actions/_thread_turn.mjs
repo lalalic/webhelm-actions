@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   promptTextMatches,
   submissionFailureDiagnostic,
@@ -13,21 +13,25 @@ import {
   composerText,
   sleep,
   USER_TURNS_JS,
+  pathThreadId,
 } from "./_action-common.mjs";
 export async function run({ helpers: h, config: c = {} }) {
   if (!c.thread_url) throw new Error("thread_url is required");
+  // On hot-updated Actions, static imports can resolve against the daemon's
+  // old module cache. Resolve the route check from this file's current revision.
+  const commonURL=new URL('./_action-common.mjs',import.meta.url);
+  const st=statSync(commonURL);
+  const {sameChatGPTThreadRoute}=await import(commonURL.href+`?mtime=${st.mtimeMs}&size=${st.size}`);
   const { js, goto_url, wait_for_load, page_info } = h,
     prompt = String(c.prompt || ""),
     files = c.file || [],
-    expected = new URL(String(c.thread_url || "https://chatgpt.com")).pathname
-      .replace(/\/$/, "");
+    expected = String(c.thread_url);
   let target_id = c.target_id || null, recovered = false;
   if (target_id) {
     try {
       await h.switch_tab(target_id);
       if (
-        new URL((await page_info()).url).pathname.replace(/\/$/, "") !==
-          expected
+        !sameChatGPTThreadRoute(expected, (await page_info()).url)
       ) {
         await goto_url(c.thread_url);
         await wait_for_load();
@@ -43,16 +47,19 @@ export async function run({ helpers: h, config: c = {} }) {
     await wait_for_load();
   }
   const endHyd = Date.now() + 30000;
-  let selector = null;
+  let selector = null, verifiedThread = false;
   while (Date.now() < endHyd) {
-    selector = await js(COMPOSER_JS);
-    if (
-      selector &&
-      new URL((await page_info()).url).pathname.replace(/\/$/, "") === expected
-    ) break;
+    const observed=(await page_info()).url;
+    const observedThread=pathThreadId(observed);
+    if(observedThread && observedThread!==pathThreadId(expected))
+      throw Error('Existing ChatGPT thread redirect mismatch');
+    if(sameChatGPTThreadRoute(expected,observed)) {
+      selector = await js(COMPOSER_JS);
+      if(selector) { verifiedThread = true; break; }
+    }
     await sleep(250);
   }
-  if (!selector) {
+  if (!verifiedThread) {
     throw new Error(
       "Existing ChatGPT thread redirect mismatch or composer not hydrated",
     );

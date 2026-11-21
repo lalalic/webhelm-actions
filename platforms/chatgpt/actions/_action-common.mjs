@@ -17,6 +17,30 @@ export const pathThreadId = (url) => {
   const m = String(url).match(/\/c\/([^/?#]+)/);
   return m?.[1] || null;
 };
+// ChatGPT may canonicalize /g/<project-id>/c/<thread> to
+// /g/<project-id>-<slug>/c/<thread>.  Compare exact thread IDs and a
+// segment-delimited Project identity, never the entire pathname string.
+// A bare /c/<thread> may redirect into a Project; a scoped destination must
+// never silently redirect to an unscoped/different Project or another Thread.
+export function sameChatGPTThreadRoute(expected,observed) {
+  const parse = value => {
+    let url;
+    try { url = new URL(value); } catch { return null; }
+    if(url.protocol!=='https:'||url.hostname!=='chatgpt.com'||url.username||url.password||url.port)
+      return null;
+    const parts=url.pathname.split('/').filter(Boolean);
+    if(parts.length===2&&parts[0]==='c'&&parts[1])
+      return {thread:parts[1],project:null};
+    if(parts.length===4&&parts[0]==='g'&&parts[1]&&parts[2]==='c'&&parts[3])
+      return {thread:parts[3],project:parts[1]};
+    return null;
+  };
+  const target=parse(expected),actual=parse(observed);
+  if(!target||!actual||target.thread!==actual.thread)return false;
+  return !target.project||actual.project===target.project||
+    !!actual.project&&actual.project.startsWith(target.project+'-');
+}
+
 export async function requireNoDeliveryError(helpers) {
   const err = await visibleDeliveryError(helpers.js);
   if (err) throw new Error(`ChatGPT visible delivery error: ${err}`);

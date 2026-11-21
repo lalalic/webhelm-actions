@@ -67,6 +67,31 @@ test("target routing preserves project/thread/temporary URL mapping", () => {
   );
 });
 
+test('legacy thread-turn route accepts canonical Project slug but refuses different Thread/Project before Send', async () => {
+  const {sameChatGPTThreadRoute} = await import('../actions/_action-common.mjs');
+  const thread='b725d128-f1e2-420c-9bbc-f2a3c6f83624';
+  const root=`https://chatgpt.com/g/g-p-A1B2C3D4/c/${thread}`;
+  const slug=`https://chatgpt.com/g/g-p-A1B2C3D4-project-name/c/${thread}`;
+  assert.equal(sameChatGPTThreadRoute(root,slug),true);
+  assert.equal(sameChatGPTThreadRoute(root,slug+'?prompt=hi'),true);
+  assert.equal(sameChatGPTThreadRoute(`https://chatgpt.com/c/${thread}`,slug),true);
+  for(const url of [
+    `https://chatgpt.com/g/g-p-A1B2C3D45-project-name/c/${thread}`,
+    `https://chatgpt.com/g/g-p-WRONG-project/c/${thread}`,
+    `https://chatgpt.com/c/${thread}`,
+    `https://evil.example/g/g-p-A1B2C3D4/c/${thread}`,
+    `https://chatgpt.com/g/g-p-A1B2C3D4/c/other-thread`,
+  ]) assert.equal(sameChatGPTThreadRoute(root,url),false,url);
+  const {run:threadTurn}=await import('../actions/_thread_turn.mjs');
+  let clicks=0;
+  await assert.rejects(()=>threadTurn({config:{thread_url:root,prompt:'never send'},helpers:{
+    new_tab:async()=>1,wait_for_load:async()=>{},
+    page_info:async()=>({url:`https://chatgpt.com/g/g-p-A1B2C3D4/c/not-the-thread`}),
+    js:async()=>{clicks++;return '#prompt-textarea'},
+  }}),/thread redirect mismatch/);
+  assert.equal(clicks,0,'Different Thread must fail before touching the composer');
+});
+
 test("browser Action rejects async; queue routing stays in WebHelm", async () => {
   for(const mode of ['async',true,'ASYNC','Sync','',1]) {
     await assert.rejects(()=>newTurn({helpers:{},config:{mode,thread_id:'t',message:'x'}}),/mode is not a browser Action input/);

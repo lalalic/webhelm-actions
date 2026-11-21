@@ -11,7 +11,18 @@
 // Keep this protocol when refactoring: earlier composer-first changes caused
 // "ChatGPT app mention requires a visible composer" in Codex multi-turn runs.
 
-import { deliveryMessage, withPromptFile, uploadAttachments } from "./_prompt-file.mjs";
+import { statSync } from "node:fs";
+
+// An Action module may be re-imported by the long-running Daemon after an
+// update, but Node caches its *static dependencies* by URL. Always resolve the
+// current helper revision at invocation time to avoid mixing new Actions with
+// stale pre-update helpers (including binary upload and Send receipt logic).
+async function currentHelper(relative) {
+  const url = new URL(relative, import.meta.url);
+  const stat = statSync(url);
+  return import(url.href + `?mtime=${stat.mtimeMs}&size=${stat.size}`);
+}
+
 import {
   prefilledSubmitWithApp,
   selectChatGPTModel,
@@ -22,6 +33,8 @@ export async function run({ helpers, config = {} }) {
   // Queue routing belongs to WebHelm; this Action always sends directly.
   if (Object.hasOwn(config,'mode') || Object.hasOwn(config,'sync'))
     throw TypeError('mode is not a browser Action input; use WebHelm Queue or direct Session routing');
+  const { deliveryMessage, withPromptFile, uploadAttachments } = await currentHelper("./_prompt-file.mjs");
+  const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
   const project_id=String(config.project_id||'').trim()||null,
     thread_id=String(config.thread_id||'').trim(),
     message=String(config.message??''),
@@ -57,7 +70,9 @@ export async function run({ helpers, config = {} }) {
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
   if (files.length) await uploadAttachments(helpers,files);
-  const receipt = await withPromptFile(helpers, prompt, content => prefilledSubmitWithApp(helpers, content, app), enforcement_context);
+  const receipt = await withPromptFile(helpers, prompt, content =>
+    app ? prefilledSubmitWithApp(helpers, content, app) : prefilledSubmit(helpers, content),
+    enforcement_context);
   const canonicalUrl = (await page_info()).url.split("?")[0];
   return {
     status: "submitted",

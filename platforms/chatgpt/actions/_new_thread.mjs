@@ -12,7 +12,15 @@
 // Keep this protocol when refactoring: earlier composer-first changes caused
 // "ChatGPT app mention requires a visible composer" in Codex multi-turn runs.
 
-import { deliveryMessage, withPromptFile } from "./_prompt-file.mjs";
+import { statSync } from "node:fs";
+
+// The long-running daemon may have cached an older helper before an Action
+// hot-update. Import the current helper revision for each Action invocation.
+async function currentHelper(relative) {
+  const url = new URL(relative, import.meta.url);
+  const stat = statSync(url);
+  return import(url.href + `?mtime=${stat.mtimeMs}&size=${stat.size}`);
+}
 import {
   prefilledSubmitWithApp,
   selectChatGPTModel,
@@ -21,6 +29,10 @@ import {
   targetUrl,
 } from "./_action-common.mjs";
 export async function run({ helpers, config = {} }) {
+  const { deliveryMessage, withPromptFile } = await currentHelper("./_prompt-file.mjs");
+  const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
+  // The long-running daemon may still hold an older _action-common module.
+  const {sameChatGPTThreadRoute} = await currentHelper("./_action-common.mjs");
   const { js, goto_url, wait_for_load, page_info } = helpers;
   const project_id = String(config.project_id || "").trim() || null,
     message = String(config.message ?? ""),
@@ -62,7 +74,15 @@ export async function run({ helpers, config = {} }) {
       await js(
         `(() => {const t=[...document.querySelectorAll('button')].some(b=>(b.getAttribute('aria-label')||'').toLowerCase().includes('turn off temporary chat'));const c=[...document.querySelectorAll('[role="textbox"],textarea')].some(e=>(e.getAttribute('aria-label')||'').trim()==='Ask ChatGPT');return t&&c;})()`,
       );
-    if (!tempMode) {
+    // The current Project/home Chat view sometimes omits Chat/Work mode
+    // toggles entirely. In that case it is still the ordinary Chat landing
+    // view (not Work) when the project/root URL and New chat control agree.
+    // This is MODE verification, never submission readiness: the prompt URL,
+    // enabled Send and Stop checks remain owned by prefilledSubmit below.
+    const implicitChatMode = !temporary && await js(
+      `(() => {const b=[...document.querySelectorAll('button')],m=b.filter(x=>['Chat','Work'].includes((x.textContent||'').trim())&&x.hasAttribute('aria-pressed')),work=m.find(x=>(x.textContent||'').trim()==='Work'),path=location.pathname;return location.hostname==='chatgpt.com'&&m.length===0&&(!work||work.getAttribute('aria-pressed')!=='true')&&(path==='/'||/^\/g\/g-p-[A-Za-z0-9_-]+\/?$/.test(path))&&b.some(x=>(x.textContent||'').trim()==='New chat'||x.getAttribute('aria-label')==='New chat');})()`,
+    );
+    if (!tempMode && !implicitChatMode) {
       throw new Error("new-thread Chat mode could not be verified");
     }
   }
@@ -78,7 +98,9 @@ export async function run({ helpers, config = {} }) {
   ) throw new Error("ChatGPT Temporary Chat mode was not activated");
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
-  const receipt = await withPromptFile(helpers, message, prompt => prefilledSubmitWithApp(helpers, prompt, app), enforcement_context);
+  const receipt = await withPromptFile(helpers, message, prompt =>
+    app ? prefilledSubmitWithApp(helpers, prompt, app) : prefilledSubmit(helpers, prompt),
+    enforcement_context);
   if (temporary) {
     return {
       status: "submitted",
@@ -105,9 +127,12 @@ export async function run({ helpers, config = {} }) {
     await sleep(200);
   }
   if (!thread_id) throw new Error('ChatGPT did not assign a durable thread id after Send click');
-  if (project_id && !new URL(thread_url).pathname.includes("/g/" + project_id)) {
-    throw new Error("ChatGPT new thread is not inside the requested Project");
-  }
+  // Canonical Project URLs may append -<slug>, but a different Project
+  // whose ID merely starts with the expected ID is never acceptable.
+  if(project_id && !sameChatGPTThreadRoute(
+    `https://chatgpt.com/g/${encodeURIComponent(project_id)}/c/${encodeURIComponent(thread_id)}`,
+    thread_url,
+  )) throw new Error("ChatGPT new thread is not inside the requested Project");
   return {
     status: "submitted",
     mode: "new-thread",
