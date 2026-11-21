@@ -14,8 +14,7 @@ export default {
   url: config => `https://chatgpt.com${config.project_id ? `/g/${encodeURIComponent(config.project_id)}` : ''}/c/${encodeURIComponent(config.thread_id)}`,
   concurrency: 4,
   intervalMs: 10000,
-  // ChatGPT may receive a message before an error is reported. Never replay an uncertain send.
-  retries: 0,
+  retries: 1, // Retry once after a failed action, then drop from the active queue.
   success: value => value?.status==='submitted' && value?.verified_by==='send-clicked',
   merge: (previous,incoming) => {
     if (!previous.mergeable || !incoming.mergeable ||
