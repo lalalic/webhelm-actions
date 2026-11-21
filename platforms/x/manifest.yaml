@@ -1,0 +1,21 @@
+platform: x
+display_name: X (Twitter)
+status: verified_read_only
+last_verified: 2026-11-21
+url_patterns:
+  - https://x.com/*
+actions:
+  heartbeat: actions/_heartbeat.mjs
+  search: actions/_search.mjs
+keep_alive:
+  action: heartbeat
+  interval_minutes: 30
+  url: https://x.com/home
+authentication:
+  required: true
+  notes: Uses only the existing WebHelm managed Chrome login. Never exports cookies or bearer tokens.
+flows:
+  heartbeat:
+    status: verified_read_only
+  search:
+    status: verified_read_only
