@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { run as newTurn } from "../actions/_new_turn.mjs";
 import { targetUrl } from "../runtime/lifecycle-common.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -274,6 +275,44 @@ test("prefilled Send rechecks a React-replaced button without duplicate clicks",
   assert.ok(probes >= 3);
 });
 
+
+test("prefilled Send selects visible button when a hidden duplicate appears first", async () => {
+  const {prefilledSubmit}=await import('../runtime/lifecycle-common.mjs');
+  let hiddenClicks=0,visibleClicks=0;
+  const mock=(shown)=>({
+    disabled:false,attrs:{'aria-label':'Send'},
+    getAttribute(k){return this.attrs[k]??null},
+    setAttribute(k,v){this.attrs[k]=v},
+    removeAttribute(k){delete this.attrs[k]},
+    getClientRects(){return shown?[{}]:[]},
+    click(){shown?visibleClicks++:hiddenClicks++},
+  });
+  const hidden=mock(false),shown=mock(true);
+  const document={
+    querySelectorAll(selector){
+      if(selector==='[data-webhelm-prefilled-send]')return [hidden,shown].filter(x=>x.getAttribute('data-webhelm-prefilled-send'));
+      return selector.includes('button[aria-label="Send"]')?[hidden,shown]:[];
+    },
+    querySelector(selector){
+      if(selector==='[data-webhelm-prefilled-send="1"]')return shown.getAttribute('data-webhelm-prefilled-send')?shown:null;
+      return this.querySelectorAll(selector)[0]??null;
+    },
+  };
+  const helpers={
+    sleep:async()=>{},
+    js:async code=>runInNewContext(code,{document}),
+    click:async selector=>{
+      assert.equal(selector,'[data-webhelm-prefilled-send="1"]');
+      const target=document.querySelector(selector);
+      assert.equal(target,shown);
+      target.click();return true;
+    },
+  };
+  const result=await prefilledSubmit(helpers,'safe prefill');
+  assert.equal(result.verified_by,'send-clicked');
+  assert.equal(visibleClicks,1);
+  assert.equal(hiddenClicks,0);
+});
 
 test("prefilled Send never clicks if disabled, and a failed click is not SENT", async () => {
   const {prefilledSubmit, SEND_ENABLED_JS} = await import("../runtime/lifecycle-common.mjs");

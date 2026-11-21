@@ -66,9 +66,11 @@ export async function prefilledSubmit(helpers, prompt, {
   // Older/non-browser callers retain the legacy JS-click fallback.
   if (typeof helpers.click === "function") {
     const selectorJS =
-      `(() => {const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]'];for(const s of selectors){const b=document.querySelector(s);if(b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true'&&b.getClientRects().length)return s;}return null;})()`;
-    // React can replace or disable the Send control immediately after the
-    // initial readiness check. A fresh pre-click readiness probe is safe:
+      `(() => {const selectors=['button[aria-label="Send"]','button[data-testid="send-button"]','button[aria-label="Send prompt"]','form button[type="submit"]'];const active=b=>!!b&&!b.disabled&&b.getAttribute('aria-disabled')!=='true'&&b.getClientRects().length>0;for(const s of selectors){const first=document.querySelector(s);if(active(first))return s;const visible=[...document.querySelectorAll(s)].find(active);if(!visible)continue;for(const old of document.querySelectorAll('[data-webhelm-prefilled-send]'))old.removeAttribute('data-webhelm-prefilled-send');visible.setAttribute('data-webhelm-prefilled-send','1');return '[data-webhelm-prefilled-send="1"]';}return null;})()`;
+    // ChatGPT may render two identical Send buttons (one hidden, one active).
+    // A first-only querySelector misses the active control despite SEND_ENABLED_JS
+    // succeeding. Tag only the visible button for a single native helper.click.
+    // React can replace or disable Send immediately after initial readiness.
     // this path has not clicked Send yet and must never retry after clicking.
     let selector;
     try {
