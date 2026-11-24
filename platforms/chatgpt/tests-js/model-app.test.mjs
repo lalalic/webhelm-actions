@@ -60,3 +60,30 @@ test('browser Action cannot bypass daemon queue routing with async mode',async()
     await assert.rejects(()=>newTurn({helpers:{},config:{thread_id:'thread',message:'test',mode:'async',...config}}),/mode is not a browser Action input/);
   }
 });
+
+test('thinking override is opt-in, verifies visible High, and fails open', async()=>{
+  const {bestEffortThinkingLevel}=await import('../actions/_thinking-level.mjs');
+  let opened=false,level=1,keys=[];
+  const helpers={
+    sleep:async()=>{},
+    click:async()=>{opened=true},
+    js:async code=>code.includes('document.activeElement===e')?true:{
+      ready:true,open:opened,slider:opened,value:level,min:0,max:2,
+      caption:['Instant','Medium','High'][level],label:['Instant','Medium','High'][level]
+    },
+    cdp:async(_,v)=>{
+      if(v.type!=='keyDown')return;
+      keys.push(v.key);
+      if(v.key==='ArrowRight')level=Math.min(2,level+1);
+      if(v.key==='ArrowLeft')level=Math.max(0,level-1);
+      if(v.key==='Escape')opened=false;
+    }
+  };
+  assert.deepEqual(await bestEffortThinkingLevel({},''),{status:'not-requested'});
+  assert.equal((await bestEffortThinkingLevel(helpers,'high')).status,'applied');
+  assert.equal(level,2);assert.equal(opened,false);
+  assert.ok(keys.includes('Escape'));
+  assert.equal((await bestEffortThinkingLevel({js:async()=>{throw Error('DOM changed')}},'high')).status,'skipped');
+  assert.equal((await bestEffortThinkingLevel(helpers,'extra high')).status,'skipped');
+  assert.equal(level,2);assert.equal(opened,false);
+});

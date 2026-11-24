@@ -40,6 +40,7 @@ export async function run({ helpers, config = {} }) {
     source_thread_id = String(config.source_thread_id || "").trim() || null,
     app = String(config.app || '').trim(),
     model_choice = String(config.model_choice || '').trim(),
+    thinking_level = String(config.thinking_level || '').trim(),
     temporary = !!config.temporary;
   if (
     ["job_id", "jobId", "task_id", "taskId", "pr_number", "prNumber"].some(
@@ -98,6 +99,16 @@ export async function run({ helpers, config = {} }) {
   ) throw new Error("ChatGPT Temporary Chat mode was not activated");
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
+  // Optional thinking selection must never prevent URL-prefill submission.
+  let thinking = {status:"not-requested"};
+  if (thinking_level) {
+    try {
+      const {bestEffortThinkingLevel} = await currentHelper("./_thinking-level.mjs");
+      thinking = await bestEffortThinkingLevel(helpers, thinking_level);
+    } catch (error) {
+      thinking = {status:"skipped",requested:thinking_level,warning:String(error?.message||error).slice(0,200)};
+    }
+  }
   const receipt = await withPromptFile(helpers, message, prompt =>
     app ? prefilledSubmitWithApp(helpers, prompt, app) : prefilledSubmit(helpers, prompt),
     enforcement_context);
@@ -110,6 +121,7 @@ export async function run({ helpers, config = {} }) {
       source_thread_id,
       thread_id: null,
       thread_url: null,
+      thinking,
       verified_by: receipt.verified_by,
       user_message_id: receipt.turn?.id || null,
     };
@@ -126,7 +138,15 @@ export async function run({ helpers, config = {} }) {
     }
     await sleep(200);
   }
-  if (!thread_id) throw new Error('ChatGPT did not assign a durable thread id after Send click');
+  if (!thread_id) {
+    // A caller-owned session can recover the URL read-only, without a second Send.
+    if (config.recover_thread_receipt === true) return {
+      status: "submitted", mode: "new-thread", temporary: false, project_id,
+      thread_id: null, thread_url: null, verified_by: receipt.verified_by,
+      receipt_pending: true, thinking,
+    };
+    throw new Error('ChatGPT did not assign a durable thread id after Send click');
+  }
   // Canonical Project URLs may append -<slug>, but a different Project
   // whose ID merely starts with the expected ID is never acceptable.
   if(project_id && !sameChatGPTThreadRoute(
@@ -141,6 +161,7 @@ export async function run({ helpers, config = {} }) {
     source_thread_id,
     thread_id,
     thread_url,
+    thinking,
     verified_by: receipt.verified_by,
     user_message_id: receipt.turn?.id || null,
   };

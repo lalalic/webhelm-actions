@@ -68,7 +68,7 @@ original full prompt, not create another input file or truncate it.
 `new-thread` and `new-turn` also support optional `app` (a structured
 ChatGPT App mention, not a plain text `@Name`) and `model_choice` (a visible
 model picker option such as `GPT-5.6 Sol`). These do not change defaults for
-other callers. On `new-turn`, queued calls invoke the same browser Action and support the same App/model options; merge is disabled for requests containing these options. New-thread and new-turn never compare composer content or inspect user-turn
+other callers. `new-thread` additionally accepts optional `thinking_level` (best effort, verified visible effort; failure yields a warning receipt and still sends exactly once). `new-turn` inherits the Thread setting. A caller-owned session may opt into `recover_thread_receipt: true` to receive a pending receipt after Send when the durable URL is not yet available; it must recover the same session without resending. On `new-turn`, queued calls invoke the same browser Action and support the same App/model options; merge is disabled for requests containing these options. New-thread and new-turn never compare composer content or inspect user-turn
 text to verify delivery. Once the Send button is enabled, a single successful
 click is recorded as submitted. The action never retries a click; new-thread
 still extracts its durable thread ID from the resulting URL.
@@ -124,3 +124,5 @@ release evidence. Record the sanitized result and clean up owned Sessions.
 When an older daemon has cached a dependency, restart it safely after its
 Sessions drain rather than treating a stale module import failure as a passing
 MVP. Do not resend ambiguous previous messages.
+
+Models recovery may call `validate_new_turn_ready` with `recovery_response_id` in an already-owned Session. This branch checks the exact current Thread and request marker, no active Stop/loading state, and available composer twice without navigation or Send. Direct `new-turn` with the same option rechecks the gate immediately before navigation. Normal Queue Send-readiness is unchanged.
