@@ -1,0 +1,18 @@
+platform: cloudflare
+display_name: Cloudflare Dashboard
+status: verified_read_only
+last_verified: 2026-11-23
+url_patterns:
+  - https://dash.cloudflare.com/*
+actions:
+  heartbeat: actions/_heartbeat.mjs
+keep_alive:
+  action: heartbeat
+  interval_minutes: 30
+  url: https://dash.cloudflare.com/
+authentication:
+  required: true
+  notes: Checks the dashboard using the existing managed Chrome login. Does not read cookies or use API tokens.
+flows:
+  heartbeat:
+    status: verified_read_only
