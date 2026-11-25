@@ -160,24 +160,58 @@ export async function prefilledSubmitWithApp(helpers,prompt,app=''){
 }
 
 
-/** Optional per-request ChatGPT model selection. Caller owns its choice. */
-export async function selectChatGPTModel(helpers,model='') {
-  if(!model)return;
+/** Optional per-request model selection. Never make Send depend on the picker. */
+export async function setModel(helpers,requested='') {
+  if(!requested)return {status:'not-requested'};
+  const picker='button[aria-label="Select ChatGPT model"]';
+  const marker='[data-webhelm-model-choice="yes"]';
   const {js,click}=helpers;
-  // In concurrent native Codex title + main requests the SPA can remain
-  // unhydrated after navigation; wait for actual picker readiness.
-  await waitUntilStable(async()=>({ready:await js(`(() => {
-    const b=document.querySelector('button[aria-label="Select ChatGPT model"]');
-    return !!b&&!b.disabled&&b.getClientRects().length>0;
-  })()`)}),state=>Boolean(state.ready),
-    {timeout:45,interval:.3,stableSamples:2,phase:'model picker readiness',sleep:helpers.sleep});
-  await click('button[aria-label="Select ChatGPT model"]');
-  const menu=await waitUntilStable(async()=>({choices:await js(`(() => [...document.querySelectorAll('[role="menuitemradio"]')].map(e=>(e.innerText||'').trim()))()`)||[]}),
-    state=>state.choices.includes(model),{timeout:10,interval:.2,stableSamples:2,phase:'model selection menu',sleep:helpers.sleep});
-  const tagged=await js(`(() => {const e=[...document.querySelectorAll('[role="menuitemradio"]')].find(x=>(x.innerText||'').trim()===${JSON.stringify(model)});if(!e)return false;e.setAttribute('data-webhelm-model-choice','yes');return true})()`);
-  if(!tagged)throw Error('requested ChatGPT model not found: '+model);
-  await click('[data-webhelm-model-choice="yes"]');
-  await waitUntilStable(async()=>({caption:await js(`document.querySelector('button[aria-label="Select ChatGPT model"]')?.innerText`)}),
-    state=>model==='GPT-5.6 Sol'?String(state.caption).includes('5.6'):model==='GPT-6'?(!String(state.caption).includes('5.6')&&String(state.caption).includes('Thinking effort')):String(state.caption).includes(model),
-    {timeout:10,interval:.2,stableSamples:2,phase:'model selection verified',sleep:helpers.sleep});
+  let opened=false;
+  // Keep optional selection bounded. A failed DOM evaluation is not a reason
+  // to keep polling for a model; the ordinary Send path must still run.
+  async function observe(read,ready,phase) {
+    let stable=0;
+    for(let i=0;i<15;i++){
+      const value=await read();
+      stable=ready(value)?stable+1:0;
+      if(stable>=2)return value;
+      await sleep(200);
+    }
+    throw Error('ChatGPT '+phase+' was not observed ready');
+  }
+  try {
+    await observe(()=>js(`(() => {
+      const b=document.querySelector('button[aria-label="Select ChatGPT model"]');
+      return !!b&&!b.disabled&&b.getClientRects().length>0;
+    })()`),Boolean,'model picker readiness');
+    opened=true;
+    if(await click(picker)===false)throw Error('model picker click failed');
+    await observe(()=>js(`(() => [...document.querySelectorAll('[role="menuitemradio"]')].map(e=>(e.innerText||'').trim()))()`),
+      choices=>Array.isArray(choices)&&choices.includes(requested),'model selection menu');
+    const tagged=await js(`(() => {for(const old of document.querySelectorAll('[data-webhelm-model-choice]'))old.removeAttribute('data-webhelm-model-choice');const e=[...document.querySelectorAll('[role="menuitemradio"]')].find(x=>(x.innerText||'').trim()===${JSON.stringify(requested)});if(!e)return false;e.setAttribute('data-webhelm-model-choice','yes');return true})()`);
+    if(!tagged)throw Error('requested ChatGPT model not found: '+requested);
+    if(await click(marker)===false)throw Error('model choice click failed');
+    await observe(()=>js(`document.querySelector('button[aria-label="Select ChatGPT model"]')?.innerText`),
+      caption=>requested==='GPT-5.6 Sol'?String(caption).includes('5.6'):requested==='GPT-6'?(!String(caption).includes('5.6')&&String(caption).includes('Thinking effort')):String(caption).includes(requested),
+      'model selection verified');
+    return {status:'applied',requested};
+  } catch(error) {
+    return {status:'skipped',requested,warning:String(error?.message||error).slice(0,200)};
+  } finally {
+    // Clear the selection tag and dismiss only the picker we attempted to
+    // open. Cleanup failure is also nonfatal; never touch composer or Send.
+    if(opened) {
+      try {
+        const open=await js(`(() => {for(const old of document.querySelectorAll('[data-webhelm-model-choice]'))old.removeAttribute('data-webhelm-model-choice');return document.querySelector('button[aria-label="Select ChatGPT model"]')?.getAttribute('aria-expanded')==='true'})()`);
+        if(open)await click(picker);
+      } catch {
+        try {
+          if(typeof helpers.cdp==='function'){
+            await helpers.cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+            await helpers.cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+          }
+        } catch {}
+      }
+    }
+  }
 }

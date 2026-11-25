@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prefilledSubmitWithApp,selectChatGPTModel} from '../actions/_action-common.mjs';
+import {prefilledSubmitWithApp,setModel} from '../actions/_action-common.mjs';
 import {run as newTurn} from '../actions/_new_turn.mjs';
 import {SEND_ENABLED_JS} from '../runtime/lifecycle-common.mjs';
 
@@ -41,6 +41,7 @@ test('optional model selection waits for picker hydration and selects Sol withou
       if(selector==='[data-webhelm-model-choice="yes"]')selected=true;
     },
     js:async script=>{
+      if(script.includes("getAttribute('aria-expanded')==='true'"))return false;
       if(script.includes('getClientRects().length>0'))return ++readyChecks>1;
       if(script.includes("map(e=>(e.innerText||'').trim())"))return ['GPT-6','GPT-5.6 Sol'];
       if(script.includes("setAttribute('data-webhelm-model-choice'"))return true;
@@ -48,11 +49,14 @@ test('optional model selection waits for picker hydration and selects Sol withou
       throw Error('Unknown picker action: '+script.slice(0,160));
     },
   };
-  await selectChatGPTModel(helpers,'GPT-5.6 Sol');
+  assert.deepEqual(await setModel(helpers,'GPT-5.6 Sol'),{status:'applied',requested:'GPT-5.6 Sol'});
   assert.ok(readyChecks>1);
   assert.deepEqual(events,['button[aria-label="Select ChatGPT model"]','[data-webhelm-model-choice="yes"]']);
   const empty={sleep:async()=>{},js:async()=>{throw Error('called when not requested')},click:async()=>{throw Error('called when not requested')}};
-  await selectChatGPTModel(empty,'');
+  assert.deepEqual(await setModel(empty,''),{status:'not-requested'});
+  const unavailable=await setModel({js:async()=>{throw Error('picker DOM changed')}},'GPT-6');
+  assert.equal(unavailable.status,'skipped');
+  assert.match(unavailable.warning,/picker DOM changed/);
 });
 
 test('browser Action cannot bypass daemon queue routing with async mode',async()=>{
@@ -86,4 +90,21 @@ test('thinking override is opt-in, verifies visible High, and fails open', async
   assert.equal((await bestEffortThinkingLevel({js:async()=>{throw Error('DOM changed')}},'high')).status,'skipped');
   assert.equal((await bestEffortThinkingLevel(helpers,'extra high')).status,'skipped');
   assert.equal(level,2);assert.equal(opened,false);
+});
+
+test('setModel cleans an opened picker after selection failure and remains nonfatal',async()=>{
+  const clicks=[];let open=false;
+  const helpers={
+    click:async selector=>{clicks.push(selector);open=!open;},
+    js:async script=>{
+      if(script.includes("getAttribute('aria-expanded')==='true'"))return open;
+      if(script.includes('getClientRects().length>0'))return true;
+      throw Error('model menu DOM changed');
+    }
+  };
+  const result=await setModel(helpers,'GPT-6');
+  assert.equal(result.status,'skipped');
+  assert.match(result.warning,/model menu DOM changed/);
+  assert.deepEqual(clicks,['button[aria-label="Select ChatGPT model"]','button[aria-label="Select ChatGPT model"]']);
+  assert.equal(open,false);
 });

@@ -369,6 +369,7 @@ test('ChatGPT policy registers validate_new_turn_ready and safe merge rules',asy
   assert.equal(policy.merge({mergeable:true,message:'one',file:['/a']},{mergeable:true,message:'two'}),null);
   assert.equal(policy.merge({mergeable:true,message:'one',thinking_level:'high'},{mergeable:true,message:'two'}),null);
   assert.equal(policy.merge({mergeable:true,message:'one'},{mergeable:true,message:'two',thinking_level:'medium'}),null);
+  assert.equal(policy.merge({mergeable:true,message:'one',thinking_level:''},{mergeable:true,message:'two'}),null);
 });
 
 test('queued and direct new-turn share binary attachment upload before one Send click',async t=>{

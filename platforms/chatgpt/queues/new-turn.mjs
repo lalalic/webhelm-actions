@@ -22,7 +22,7 @@ export default {
         (previous.enforcement_context||'')!==(incoming.enforcement_context||'') ||
         previous.file?.length || incoming.file?.length ||
         previous.app || incoming.app || previous.model_choice || incoming.model_choice ||
-        previous.thinking_level || incoming.thinking_level) return null;
+        previous.thinking_level != null || incoming.thinking_level != null) return null;
     return {...previous,message:previous.message+'\n'+incoming.message};
   },
 };

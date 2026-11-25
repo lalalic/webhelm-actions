@@ -21,6 +21,7 @@ function browserFixture(){
       calls.uploads.push({file,text:readFileSync(file,'utf8')});
     },
     js:async script=>{
+      if(script.includes('data-reasoning-slider'))return {ready:true,caption:'Thinking effort\nHigh'};
       if(script===SEND_ENABLED_JS)return !clicked;
       if(script===CLICK_SEND_JS){clicked=true;calls.clicks++;return true;}
       if(script.includes('const b=[...document.querySelectorAll(\'button\')],f=n'))return 'chat';
@@ -122,7 +123,7 @@ test('optional enforcement_context works for short messages and rejects unsafe o
 
 test('newThread and newTurn share opt-in thinking selection and Send once even on failure',async()=>{
   for (const action of [newThread,newTurn]) {
-    for (const requested of ['', 'high', 'medium']) {
+    for (const requested of [undefined, '', 'high', 'medium']) {
       const f=browserFixture(),original=f.helpers.js;
       let reads=0;
       f.helpers.js=async script=>{
@@ -136,9 +137,32 @@ test('newThread and newTurn share opt-in thinking selection and Send once even o
       const result=await action({helpers:f.helpers,config:{message:'Hello',thread_id:'same-thread',thinking_level:requested}});
       assert.equal(result.status,'submitted');
       assert.equal(f.calls.clicks,1);
-      assert.equal(result.thinking.status,requested==='high'?'applied':requested==='medium'?'skipped':'not-requested');
-      assert.equal(reads,requested?1:0);
+      assert.equal(result.thinking.status,requested===undefined||requested==='high'?'applied':requested==='medium'?'skipped':'not-requested');
+      assert.equal(reads,requested===''?0:1);
+      if(requested===undefined)assert.equal(result.thinking.requested,'high');
       if(requested==='medium')assert.match(result.thinking.warning,/picker DOM changed/);
+    }
+  }
+});
+
+test('both Actions skip failed model selection and still click Send exactly once',async()=>{
+  for(const action of [newThread,newTurn]){
+    for(const requested of ['', 'GPT-6']){
+      const f=browserFixture(),original=f.helpers.js;
+      let pickerReads=0;
+      f.helpers.js=async script=>{
+        if(script.includes('Select ChatGPT model')&&!script.includes('data-reasoning-slider')){
+          pickerReads++;
+          throw Error('picker DOM changed');
+        }
+        return original(script);
+      };
+      const result=await action({helpers:f.helpers,config:{message:'Hello',thread_id:'same-thread',model_choice:requested}});
+      assert.equal(result.status,'submitted');
+      assert.equal(f.calls.clicks,1);
+      assert.equal(result.model.status,requested?'skipped':'not-requested');
+      assert.equal(pickerReads,requested?1:0);
+      if(requested)assert.match(result.model.warning,/picker DOM changed/);
     }
   }
 });

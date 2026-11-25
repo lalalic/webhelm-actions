@@ -23,7 +23,6 @@ async function currentHelper(relative) {
 }
 import {
   prefilledSubmitWithApp,
-  selectChatGPTModel,
   requireNoDeliveryError,
   sleep,
   targetUrl,
@@ -32,7 +31,7 @@ export async function run({ helpers, config = {} }) {
   const { deliveryMessage, withPromptFile } = await currentHelper("./_prompt-file.mjs");
   const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
   // The long-running daemon may still hold an older _action-common module.
-  const {sameChatGPTThreadRoute, setThinkingLevel} = await currentHelper("./_action-common.mjs");
+  const {sameChatGPTThreadRoute, setModel, setThinkingLevel} = await currentHelper("./_action-common.mjs");
   const { js, goto_url, wait_for_load, page_info } = helpers;
   const project_id = String(config.project_id || "").trim() || null,
     message = String(config.message ?? ""),
@@ -40,7 +39,7 @@ export async function run({ helpers, config = {} }) {
     source_thread_id = String(config.source_thread_id || "").trim() || null,
     app = String(config.app || '').trim(),
     model_choice = String(config.model_choice || '').trim(),
-    thinking_level = String(config.thinking_level || '').trim(),
+    thinking_level = String(config.thinking_level ?? 'high').trim(),
     temporary = !!config.temporary;
   if (
     ["job_id", "jobId", "task_id", "taskId", "pr_number", "prNumber"].some(
@@ -98,7 +97,7 @@ export async function run({ helpers, config = {} }) {
     )
   ) throw new Error("ChatGPT Temporary Chat mode was not activated");
   await requireNoDeliveryError(helpers);
-  if(model_choice)await selectChatGPTModel(helpers,model_choice);
+  const model = await setModel(helpers, model_choice);
   const thinking = await setThinkingLevel(helpers, thinking_level);
   const receipt = await withPromptFile(helpers, message, prompt =>
     app ? prefilledSubmitWithApp(helpers, prompt, app) : prefilledSubmit(helpers, prompt),
@@ -112,6 +111,7 @@ export async function run({ helpers, config = {} }) {
       source_thread_id,
       thread_id: null,
       thread_url: null,
+      model,
       thinking,
       verified_by: receipt.verified_by,
       user_message_id: receipt.turn?.id || null,
@@ -134,7 +134,7 @@ export async function run({ helpers, config = {} }) {
     if (config.recover_thread_receipt === true) return {
       status: "submitted", mode: "new-thread", temporary: false, project_id,
       thread_id: null, thread_url: null, verified_by: receipt.verified_by,
-      receipt_pending: true, thinking,
+      receipt_pending: true, model, thinking,
     };
     throw new Error('ChatGPT did not assign a durable thread id after Send click');
   }
@@ -152,6 +152,7 @@ export async function run({ helpers, config = {} }) {
     source_thread_id,
     thread_id,
     thread_url,
+    model,
     thinking,
     verified_by: receipt.verified_by,
     user_message_id: receipt.turn?.id || null,
