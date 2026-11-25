@@ -4,7 +4,8 @@
 // 2. Observe location and enabled Send button status. ChatGPT can keep
 //    ?prompt= until Send is clicked; do not require its removal before clicking.
 // 3. Click the enabled Send button AT MOST ONCE and mark submitted.
-//    Extract the new durable thread ID from the resulting URL.
+//    Extract the durable thread ID from the resulting URL or a correlated
+//    creation-response stream when the URL is unavailable.
 // 4. Never resend after clicking. Do not replace these checks
 //    with composer DOM visibility, contenteditable selection, or text matching.
 // 5. A structured @App mention (which edits the composer) is an explicit
@@ -27,7 +28,7 @@ import {
   sleep,
   targetUrl,
 } from "./_action-common.mjs";
-export async function run({ helpers, config = {} }) {
+export async function run({ helpers, config = {}, log = () => {} }) {
   const { deliveryMessage, withPromptFile } = await currentHelper("./_prompt-file.mjs");
   const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
   // The long-running daemon may still hold an older _action-common module.
@@ -53,7 +54,21 @@ export async function run({ helpers, config = {} }) {
   if (temporary && project_id) {
     throw new Error("temporary=true cannot be combined with project_id");
   }
-  const url = targetUrl({ project_id, temporary, prompt: deliveryMessage(message,enforcement_context) });
+  const delivered = deliveryMessage(message,enforcement_context);
+  const url = targetUrl({ project_id, temporary, prompt: delivered });
+  // A plain new thread can recover a verified creation ID without relying on
+  // client navigation. Project membership and structured App mentions retain
+  // the existing URL verification; temporary chats have no durable ID.
+  let observer=null;
+  if (!temporary && !project_id && !app && typeof helpers.observe_network === "function" &&
+      typeof helpers.click === "function") {
+    try {
+      observer=await helpers.observe_network({url:"https://chatgpt.com/backend-api/f/conversation",method:"POST"});
+    } catch {
+      log("new-thread network observer unavailable; using URL receipt");
+    }
+  }
+  const {networkThreadReceipt}=await currentHelper("./_network-thread-receipt.mjs");
   const mode = async () =>
     await js(
       `(() => {const b=[...document.querySelectorAll('button')],f=n=>b.find(x=>(x.textContent||'').trim()===n&&x.hasAttribute('aria-pressed')),c=f('Chat'),w=f('Work');if(!c||!w)return 'unknown';if(c.getAttribute('aria-pressed')==='true'&&w.getAttribute('aria-pressed')==='false')return 'chat';if(w.getAttribute('aria-pressed')==='true'&&c.getAttribute('aria-pressed')==='false')return 'work';return 'unknown';})()`,
@@ -99,8 +114,12 @@ export async function run({ helpers, config = {} }) {
   await requireNoDeliveryError(helpers);
   const model = await setModel(helpers, model_choice);
   const thinking = await setThinkingLevel(helpers, thinking_level);
+  const submitHelpers=observer?{...helpers,async click(selector){
+    observer.arm();
+    return helpers.click(selector);
+  }}:helpers;
   const receipt = await withPromptFile(helpers, message, prompt =>
-    app ? prefilledSubmitWithApp(helpers, prompt, app) : prefilledSubmit(helpers, prompt),
+    app ? prefilledSubmitWithApp(submitHelpers, prompt, app) : prefilledSubmit(submitHelpers, prompt),
     enforcement_context);
   if (temporary) {
     return {
@@ -129,6 +148,21 @@ export async function run({ helpers, config = {} }) {
     }
     await sleep(200);
   }
+  let thread_id_source=thread_id?"url":null;
+  if(!thread_id&&observer){
+    const recovered=networkThreadReceipt(observer.snapshot(),delivered);
+    if(recovered){
+      ({thread_id,thread_url}=recovered);
+      thread_id_source="network";
+    }
+  }
+  if(observer){
+    const observed=networkThreadReceipt(observer.snapshot(),delivered);
+    // Record only verified identity and source, not request/response data.
+    log("new-thread network receipt",{thread_id:observed?.thread_id||null,source:thread_id_source});
+    observer.close();
+    if(thread_id&&observed&&observed.thread_id!==thread_id)throw new Error("ChatGPT URL and creation response Thread IDs disagree");
+  }
   if (!thread_id) {
     // A caller-owned session can recover the URL read-only, without a second Send.
     if (config.recover_thread_receipt === true) return {
@@ -152,6 +186,7 @@ export async function run({ helpers, config = {} }) {
     source_thread_id,
     thread_id,
     thread_url,
+    thread_id_source,
     model,
     thinking,
     verified_by: receipt.verified_by,

@@ -166,3 +166,34 @@ test('both Actions skip failed model selection and still click Send exactly once
     }
   }
 });
+
+test('new-thread falls back to correlated network ID after real URL wait contract expires, without resending',async(t)=>{
+  const f=browserFixture(),id='6b076bbd-2030-83e9-a212-ed07f30ec6b0',prompt='network test',steps=[];
+  let now=1000,sent=false;
+  t.mock.method(Date,'now',()=>now);
+  const js=f.helpers.js;
+  f.helpers.js=async script=>{
+    if(script.includes('const selectors=')&&script.includes('data-webhelm-prefilled-send'))return 'button[aria-label="Send"]';
+    return js(script);
+  };
+  f.helpers.page_info=async()=>{
+    if(sent)now+=60001;
+    return {url:'https://chatgpt.com/'};
+  };
+  f.helpers.observe_network=async options=>{
+    assert.deepEqual(options,{url:'https://chatgpt.com/backend-api/f/conversation',method:'POST'});
+    steps.push('observe');
+    return {arm(){steps.push('arm')},snapshot(){return {requests:[{
+      status:200,mime:'text/event-stream',
+      post_data:JSON.stringify({action:'next',messages:[{author:{role:'user'},content:{parts:[prompt]}}]}),
+      body:'data: '+JSON.stringify({conversation_id:id})+'\n\n'
+    }]}},close(){steps.push('close')}};
+  };
+  f.helpers.click=async selector=>{assert.equal(selector,'button[aria-label="Send"]');steps.push('send');sent=true;f.calls.clicks++;return true};
+  const r=await newThread({helpers:f.helpers,config:{message:prompt,thinking_level:''}});
+  assert.equal(r.thread_id,id);
+  assert.equal(r.thread_id_source,'network');
+  assert.equal(r.verified_by,'send-clicked');
+  assert.equal(f.calls.clicks,1);
+  assert.deepEqual(steps,['observe','arm','send','close']);
+});

@@ -55,7 +55,7 @@ Destructive controls (`Disconnect`, `Uninstall`, `Delete app`) are intentionally
 Browser Workspace owns the ChatGPT UI mechanics for orchestrator lifecycle handoff.
 
 - `new-turn`: given stable `project_id`, `thread_id` and `message` (or attachments), submit to the same conversation. **Without a caller Session**, `webhelm platform run chatgpt new-turn --config turn.json` enqueues through `queues/new-turn.mjs`, returning `{status:'queued',queue_id,...}` immediately. **With `--session-id`**, it directly calls the same `_new_turn.mjs` Action. The Action clicks Send once and returns `status:'submitted'` without waiting for the assistant response. `mode`/`sync` inputs and `--mode` are retired; the caller-owned Session decides direct versus queued execution.
-- `new-thread`: given stable `project_id` and `message` (plus optional `source_thread_id` provenance), open the same Project, submit the continuation to create a fresh thread, and return the durable new `thread_id` once ChatGPT replaces any temporary local id.
+- `new-thread`: given stable `project_id` and `message` (plus optional `source_thread_id` provenance), open the same Project, submit the continuation to create a fresh thread, and return the durable new `thread_id` once ChatGPT replaces any temporary local id. For ordinary persistent new chats, the scoped creation-response observer also verifies the exact submitted request and SSE conversation ID; if the URL never updates within the existing wait, use that ID. Project, App and Temporary Chat behavior is unchanged. A missing or ambiguous network receipt never authorizes another Send.
 
 **Long prompts (>2,000 characters):** `new-thread` and synchronous `new-turn`
 write the complete message to a private temporary `prompt.md`, confirm its upload
