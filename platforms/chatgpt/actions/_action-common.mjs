@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { promptTextMatches, waitUntilStable } from "../runtime/readiness.mjs";
 import {
   prefilledSubmit,
@@ -12,6 +13,20 @@ export {
   waitUntilStable,
 };
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The only internal entry point for Thinking Level. Keep it best-effort,
+// including helper hot-reload failures; never make Send depend on the picker.
+export async function setThinkingLevel(helpers, requested='') {
+  if(!requested)return {status:'not-requested'};
+  try {
+    const url=new URL('./_thinking-level.mjs',import.meta.url);
+    const stat=statSync(url);
+    const {bestEffortThinkingLevel}=await import(url.href+`?mtime=${stat.mtimeMs}&size=${stat.size}`);
+    return await bestEffortThinkingLevel(helpers,requested);
+  } catch(error) {
+    return {status:'skipped',requested,warning:String(error?.message||error).slice(0,200)};
+  }
+}
+
 export const text = (v) => String(v ?? "").trim();
 export const pathThreadId = (url) => {
   const m = String(url).match(/\/c\/([^/?#]+)/);

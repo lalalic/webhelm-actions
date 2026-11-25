@@ -21,7 +21,8 @@ export default {
         (previous.project_id||null)!==(incoming.project_id||null) ||
         (previous.enforcement_context||'')!==(incoming.enforcement_context||'') ||
         previous.file?.length || incoming.file?.length ||
-        previous.app || incoming.app || previous.model_choice || incoming.model_choice) return null;
+        previous.app || incoming.app || previous.model_choice || incoming.model_choice ||
+        previous.thinking_level || incoming.thinking_level) return null;
     return {...previous,message:previous.message+'\n'+incoming.message};
   },
 };

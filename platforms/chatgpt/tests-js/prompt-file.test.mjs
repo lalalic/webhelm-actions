@@ -119,3 +119,26 @@ test('optional enforcement_context works for short messages and rejects unsafe o
   assert.throws(()=>deliveryMessage('hello','A'.repeat(1501)),/enforcement_context/);
   assert.throws(()=>deliveryMessage('hello','</top-instructions>'),/enforcement_context/);
 });
+
+test('newThread and newTurn share opt-in thinking selection and Send once even on failure',async()=>{
+  for (const action of [newThread,newTurn]) {
+    for (const requested of ['', 'high', 'medium']) {
+      const f=browserFixture(),original=f.helpers.js;
+      let reads=0;
+      f.helpers.js=async script=>{
+        if(script.includes('data-reasoning-slider')){
+          reads++;
+          if(requested==='medium')throw Error('picker DOM changed');
+          return {ready:true,caption:'Thinking effort\nHigh'};
+        }
+        return original(script);
+      };
+      const result=await action({helpers:f.helpers,config:{message:'Hello',thread_id:'same-thread',thinking_level:requested}});
+      assert.equal(result.status,'submitted');
+      assert.equal(f.calls.clicks,1);
+      assert.equal(result.thinking.status,requested==='high'?'applied':requested==='medium'?'skipped':'not-requested');
+      assert.equal(reads,requested?1:0);
+      if(requested==='medium')assert.match(result.thinking.warning,/picker DOM changed/);
+    }
+  }
+});

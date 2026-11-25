@@ -32,7 +32,7 @@ export async function run({ helpers, config = {} }) {
   const { deliveryMessage, withPromptFile } = await currentHelper("./_prompt-file.mjs");
   const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
   // The long-running daemon may still hold an older _action-common module.
-  const {sameChatGPTThreadRoute} = await currentHelper("./_action-common.mjs");
+  const {sameChatGPTThreadRoute, setThinkingLevel} = await currentHelper("./_action-common.mjs");
   const { js, goto_url, wait_for_load, page_info } = helpers;
   const project_id = String(config.project_id || "").trim() || null,
     message = String(config.message ?? ""),
@@ -99,16 +99,7 @@ export async function run({ helpers, config = {} }) {
   ) throw new Error("ChatGPT Temporary Chat mode was not activated");
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
-  // Optional thinking selection must never prevent URL-prefill submission.
-  let thinking = {status:"not-requested"};
-  if (thinking_level) {
-    try {
-      const {bestEffortThinkingLevel} = await currentHelper("./_thinking-level.mjs");
-      thinking = await bestEffortThinkingLevel(helpers, thinking_level);
-    } catch (error) {
-      thinking = {status:"skipped",requested:thinking_level,warning:String(error?.message||error).slice(0,200)};
-    }
-  }
+  const thinking = await setThinkingLevel(helpers, thinking_level);
   const receipt = await withPromptFile(helpers, message, prompt =>
     app ? prefilledSubmitWithApp(helpers, prompt, app) : prefilledSubmit(helpers, prompt),
     enforcement_context);

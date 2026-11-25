@@ -62,7 +62,7 @@ test('browser Action cannot bypass daemon queue routing with async mode',async()
 });
 
 test('thinking override is opt-in, verifies visible High, and fails open', async()=>{
-  const {bestEffortThinkingLevel}=await import('../actions/_thinking-level.mjs');
+  const {setThinkingLevel:bestEffortThinkingLevel}=await import('../actions/_action-common.mjs');
   let opened=false,level=1,keys=[];
   const helpers={
     sleep:async()=>{},

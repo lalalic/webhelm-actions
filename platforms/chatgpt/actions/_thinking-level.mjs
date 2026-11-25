@@ -18,7 +18,7 @@ function normalized(value) {
   return String(value||'').toLowerCase().replace(/[\s_-]+/g,'');
 }
 function matches(value, want) {
-  const v=normalized(value);
+  const v=normalized(value).replace(/^thinkingeffort/,'');
   return v===want || v===('5.6'+want);
 }
 async function key(helpers, name) {
@@ -30,7 +30,7 @@ export async function bestEffortThinkingLevel(helpers,requested='') {
   if(!requested)return {status:'not-requested'};
   const want=normalized(requested);
   let opened=false;
-  const pause=helpers.sleep || (ms=>new Promise(r=>setTimeout(r,ms)));
+  const pause=ms=>new Promise(r=>setTimeout(r,ms));
   try {
     if(!['instant','low','medium','high','extrahigh'].includes(want))throw Error('unsupported effort');
     let state;
@@ -40,17 +40,17 @@ export async function bestEffortThinkingLevel(helpers,requested='') {
     if(!state.open)await helpers.click(PICKER);
     opened=true;
     for(let i=0;i<10;i++){state=await helpers.js(READ);if(state?.open&&state.slider)break;await pause(200);}
-    if(!state?.slider||!Number.isInteger(state.value)||!Number.isInteger(state.min)||!Number.isInteger(state.max)||state.max-state.min>6)throw Error('Power slider unavailable');
+    if(!state?.slider||!Number.isInteger(state.value)||!Number.isInteger(state.min)||!Number.isInteger(state.max)||state.value<state.min||state.value>state.max||state.max-state.min>6)throw Error('Power slider unavailable');
     // Discover labels by moving the keyboard-accessible control, never assume a numeric mapping.
     const original=state.value;
     if(!matches(state.label,want)) {
       const focus=await helpers.js(`(() => {const e=document.querySelector('${ROW}');if(!e)return false;e.focus();return document.activeElement===e})()`);
       if(!focus)throw Error('Power slider not focusable');
       const move=async direction=>{await key(helpers,direction);await pause(200);return await helpers.js(READ);};
-      while(state.value>state.min&&!matches(state.label,want)){
+      for(let i=0;i<6&&state.value>state.min&&!matches(state.label,want);i++){
         const old=state.value;state=await move('ArrowLeft');if(state.value>=old)break;
       }
-      while(state.value<state.max&&!matches(state.label,want)){
+      for(let i=0;i<6&&state.value<state.max&&!matches(state.label,want);i++){
         const old=state.value;state=await move('ArrowRight');if(state.value<=old)break;
       }
       if(!matches(state.label,want)){

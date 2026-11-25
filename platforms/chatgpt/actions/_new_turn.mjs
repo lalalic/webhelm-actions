@@ -35,12 +35,14 @@ export async function run({ helpers, config = {} }) {
     throw TypeError('mode is not a browser Action input; use WebHelm Queue or direct Session routing');
   const { deliveryMessage, withPromptFile, uploadAttachments } = await currentHelper("./_prompt-file.mjs");
   const { prefilledSubmit } = await currentHelper("../runtime/lifecycle-common.mjs");
+  const {setThinkingLevel} = await currentHelper("./_action-common.mjs");
   const project_id=String(config.project_id||'').trim()||null,
     thread_id=String(config.thread_id||'').trim(),
     message=String(config.message??''),
     enforcement_context=config.enforcement_context??'',
     app=String(config.app||'').trim(),
     model_choice=String(config.model_choice||'').trim(),
+    thinking_level=String(config.thinking_level||'').trim(),
     files=config.file??[];
   if (!thread_id) throw Error('thread_id is required');
   if (!Array.isArray(files) || files.length>4) throw TypeError('file must contain at most four paths');
@@ -69,6 +71,7 @@ export async function run({ helpers, config = {} }) {
   }
   await requireNoDeliveryError(helpers);
   if(model_choice)await selectChatGPTModel(helpers,model_choice);
+  const thinking = await setThinkingLevel(helpers,thinking_level);
   if (files.length) await uploadAttachments(helpers,files);
   const receipt = await withPromptFile(helpers, prompt, content =>
     app ? prefilledSubmitWithApp(helpers, content, app) : prefilledSubmit(helpers, content),
@@ -80,6 +83,7 @@ export async function run({ helpers, config = {} }) {
     project_id,
     thread_id,
     thread_url: canonicalUrl,
+    thinking,
     verified_by: receipt.verified_by,
     user_message_id: receipt.turn?.id || null,
   };
