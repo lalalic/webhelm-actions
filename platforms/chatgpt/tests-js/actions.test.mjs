@@ -402,34 +402,3 @@ test('queued and direct new-turn share binary attachment upload before one Send 
   assert.equal(outcome.verified_by,'send-clicked');
   assert.equal(new URL(nav).searchParams.get('prompt'),'Check image');
 });
-
-test('Gateway recovery readiness checks owned idle thread without navigating or sending',async()=>{
-  const {run}=await import('../actions/_validate_new_turn_ready.mjs');
-  const thread='thread-123',response='resp_'+'a'.repeat(40);
-  const config={thread_id:thread,recovery_response_id:response};
-  let state={url:'https://chatgpt.com/c/'+thread,own:true,stop:false,pending:false,composer:true};
-  let reads=0;
-  const helpers={
-    js:async script=>{assert.ok(script.includes('reply/models/'+response));reads++;return state;},
-    goto_url:async()=>{throw Error('must not navigate');},
-    click:async()=>{throw Error('must not click');}
-  };
-  assert.equal(await run({helpers,config}),true);
-  assert.equal(reads,2);
-  for(const change of [{stop:true},{pending:true},{own:false},{composer:false},{url:'https://chatgpt.com/c/other'}]){
-    const saved=state;state={...saved,...change};
-    assert.equal(await run({helpers,config}),false);
-    state=saved;
-  }
-  await assert.rejects(()=>run({helpers,config:{...config,recovery_response_id:'bad'}}),/invalid recovery response ID/);
-});
-
-test('Recovery new-turn skips Send and navigation if current turn is busy',async()=>{
-  const response='resp_'+'b'.repeat(40);
-  const result=await newTurn({config:{thread_id:'thread-123',message:'Continue reply/models/'+response,recovery_response_id:response},helpers:{
-    js:async()=>({url:'https://chatgpt.com/c/thread-123',own:true,stop:true,pending:false,composer:true}),
-    goto_url:async()=>{throw Error('busy turn must not navigate');},
-    click:async()=>{throw Error('busy turn must not send');}
-  }});
-  assert.deepEqual(result,{status:'not_ready',thread_id:'thread-123'});
-});

@@ -43,11 +43,6 @@ export async function run({ helpers, config = {} }) {
     model_choice=String(config.model_choice||'').trim(),
     files=config.file??[];
   if (!thread_id) throw Error('thread_id is required');
-  // Recovery must not navigate away from a still-running or different turn.
-  if(config.recovery_response_id!==undefined){
-    const {run:validate}=await currentHelper("./_validate_new_turn_ready.mjs");
-    if(!await validate({helpers,config}))return {status:"not_ready",thread_id};
-  }
   if (!Array.isArray(files) || files.length>4) throw TypeError('file must contain at most four paths');
   if (!message.trim() && !files.length) throw Error('message or file required');
   const prompt=message.trim()?message:'See attached files.';

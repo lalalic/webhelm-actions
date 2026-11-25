@@ -125,4 +125,5 @@ When an older daemon has cached a dependency, restart it safely after its
 Sessions drain rather than treating a stale module import failure as a passing
 MVP. Do not resend ambiguous previous messages.
 
-Models recovery may call `validate_new_turn_ready` with `recovery_response_id` in an already-owned Session. This branch checks the exact current Thread and request marker, no active Stop/loading state, and available composer twice without navigation or Send. Direct `new-turn` with the same option rechecks the gate immediately before navigation. Normal Queue Send-readiness is unchanged.
+
+Models recovery reuses the ordinary validate_new_turn_ready and new-turn Actions. No additional DOM inspection is needed for recovery.
